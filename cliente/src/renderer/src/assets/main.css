@@ -1,0 +1,17 @@
+@import "tailwindcss";
+/* src/main.css ou src/index.css */
+
+@tailwind utilities;
+
+:root {
+  /* Paleta de Cores Principal */
+  --color-background: #111827; /* Cinza bem escuro (bg-gray-900) */
+  --color-surface: #1f2937;    /* Cinza escuro para cards (bg-gray-800) */
+  --color-primary: #3b82f6;   /* Cor de destaque principal (bg-blue-600) */
+  --color-primary-hover: #2563eb; /* Destaque ao passar o mouse (bg-blue-700) */
+  
+  /* Cores de Texto */
+  --color-text-base: #f9fafb;     /* Texto principal (text-gray-100) */
+  --color-text-muted: #9ca3af;    /* Texto secundário (text-gray-400) */
+  --color-text-inverted: #ffffff; /* Texto sobre fundos coloridos */
+}
