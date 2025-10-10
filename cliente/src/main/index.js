@@ -45,8 +45,7 @@ function createChatWindow(chatInfo) {
     }
   })
 
-  chatWin.webContents.openDevTools();
-  
+
   const query = new URLSearchParams({
     currentUser: chatInfo.currentUser,
     chatWithUser: chatInfo.chatWithUser
