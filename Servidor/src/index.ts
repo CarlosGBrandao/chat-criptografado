@@ -9,7 +9,7 @@ const port = 3000;
 const httpServer = http.createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: "*", // Em desenvolvimento. Para produção, especifique o endereço do cliente.
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -18,47 +18,45 @@ const io = new SocketIOServer(httpServer, {
 app.use(cors());
 
 // --- GERENCIAMENTO DE ESTADO DO CHAT ---
-// Usamos um Map para associar o NOME do usuário ao seu ID de socket.
-const onlineUsers = new Map<string, string>();
+// CORREÇÃO: Agora um username mapeia para um CONJUNTO (Set) de socket IDs.
+const onlineUsers = new Map<string, Set<string>>();
 
 // --- LÓGICA DO SOCKET.IO ---
 io.on('connection', (socket: Socket) => {
   console.log(`✅ Um cliente conectou! ID: ${socket.id}`);
-
-  // MELHORIA: Associamos uma propriedade 'username' ao socket
-  // para identificar facilmente quem ele é em outros eventos.
+  
   let connectedUsername: string | null = null;
 
   socket.on('register', (username: string) => {
-    connectedUsername = username; // Guardamos o nome do usuário neste socket
-    console.log(`Usuário '${username}' se registrou com o socket ID ${socket.id}`);
-    onlineUsers.set(username, socket.id);
+    connectedUsername = username;
     
-    // Envia a lista de usuários atualizada para TODOS os clientes
+    // Se for a primeira conexão deste usuário, crie um novo Set para ele.
+    if (!onlineUsers.has(username)) {
+      onlineUsers.set(username, new Set());
+    }
+    // Adicione o novo socket ID ao Set de conexões do usuário.
+    onlineUsers.get(username)!.add(socket.id);
+
+    console.log(`Usuário '${username}' registrou a conexão ${socket.id}`);
     io.emit('updateUserList', Array.from(onlineUsers.keys()));
   });
 
   socket.on('privateMessage', (data: { to: string; message: string }) => {
-    // MELHORIA: Agora sabemos quem é o remetente instantaneamente, sem precisar de um loop.
     const senderUsername = connectedUsername;
-    
-    if (!senderUsername) {
-      console.error(`Recebida privateMessage de um socket não registrado: ${socket.id}`);
-      return; // Aborta se o remetente não estiver registrado
-    }
-    
-    console.log('✅ Evento "privateMessage" recebido!');
-    console.log(`   - De: ${senderUsername} (ID: ${socket.id})`);
-    console.log(`   - Para: ${data.to}`);
-    console.log(`   - Mensagem: "${data.message}"`);
+    if (!senderUsername) return;
 
-    const recipientSocketId = onlineUsers.get(data.to);
+    // Pega o CONJUNTO de sockets do destinatário.
+    const recipientSocketIds = onlineUsers.get(data.to);
 
-    if (recipientSocketId) {
-      // Envia a mensagem apenas para o socket específico do destinatário
-      io.to(recipientSocketId).emit('receiveMessage', {
-        from: senderUsername,
-        message: data.message,
+    if (recipientSocketIds && recipientSocketIds.size > 0) {
+      console.log(`Mensagem de '${senderUsername}' para '${data.to}': ${data.message}`);
+      
+      // Envia a mensagem para CADA socket ativo do destinatário.
+      recipientSocketIds.forEach(socketId => {
+        io.to(socketId).emit('receiveMessage', {
+          from: senderUsername,
+          message: data.message,
+        });
       });
     } else {
       console.warn(`Tentativa de enviar mensagem para usuário offline: ${data.to}`);
@@ -67,29 +65,32 @@ io.on('connection', (socket: Socket) => {
 
   socket.on('disconnect', () => {
     console.log(`❌ O cliente ${socket.id} desconectou.`);
-    // MELHORIA: A lógica de desconexão agora é muito mais simples.
     if (connectedUsername) {
-      onlineUsers.delete(connectedUsername);
-      // Envia a lista atualizada para todos após a remoção
+      const userSockets = onlineUsers.get(connectedUsername);
+      if (userSockets) {
+        // Remove este socket específico do Set do usuário.
+        userSockets.delete(socket.id);
+        
+        // Se o usuário não tem mais nenhuma conexão ativa, remova-o da lista.
+        if (userSockets.size === 0) {
+          onlineUsers.delete(connectedUsername);
+          console.log(`Usuário '${connectedUsername}' ficou completamente offline.`);
+        }
+      }
       io.emit('updateUserList', Array.from(onlineUsers.keys()));
-      console.log(`Usuário '${connectedUsername}' foi removido da lista.`);
     }
   });
 });
 
-// --- ROTAS DO EXPRESS ---
+// --- ROTAS DO EXPRESS E INICIALIZAÇÃO ---
 app.get('/', (req: Request, res: Response) => {
-  res.send('Olá, mundo com Node.js e TypeScript!'); // Corrigido: "munde" -> "mundo"
+  res.send('Olá, mundo com Node.js e TypeScript!');
 });
 
 app.get('/api/status', (req: Request, res: Response) => {
-  res.json({ 
-    status: 'online', 
-    mensagem: 'Servidor está funcionando perfeitamente!' 
-  });
+  res.json({ status: 'online', mensagem: 'Servidor está funcionando perfeitamente!' });
 });
 
-// --- INICIALIZAÇÃO DO SERVIDOR ---
 httpServer.listen(port, () => {
   console.log(`🚀 Servidor rodando e ouvindo em http://localhost:${port}`);
 });
