@@ -38,13 +38,15 @@ function createChatWindow(chatInfo) {
     width: 500,
     height: 700,
     autoHideMenuBar: true,
-    title: 'Chat com ',
+    title: 'Chat comm ',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
   })
 
+  chatWin.webContents.openDevTools();
+  
   const query = new URLSearchParams({
     currentUser: chatInfo.currentUser,
     chatWithUser: chatInfo.chatWithUser

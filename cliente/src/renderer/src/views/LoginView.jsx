@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { socket } from '../socket';
+
 
 // Este componente recebe uma função `onLogin` como propriedade (props)
 export function LoginView({ onLogin }) {
