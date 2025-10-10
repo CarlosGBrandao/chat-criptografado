@@ -17,9 +17,15 @@ const io = new SocketIOServer(httpServer, {
 // --- MIDDLEWARES ---
 app.use(cors());
 
-// --- GERENCIAMENTO DE ESTADO DO CHAT ---
+
 // CORREÇÃO: Agora um username mapeia para um CONJUNTO (Set) de socket IDs.
 const onlineUsers = new Map<string, Set<string>>();
+
+const rooms = new Map<string, {
+  owner: string;     
+  admins: Set<string>;
+  members: Set<string>; 
+}>();
 
 // --- LÓGICA DO SOCKET.IO ---
 io.on('connection', (socket: Socket) => {
@@ -62,6 +68,29 @@ io.on('connection', (socket: Socket) => {
       console.warn(`Tentativa de enviar mensagem para usuário offline: ${data.to}`);
     }
   });
+
+  socket.on('createGroup', (data: { groupName: string }) => {
+  const creatorUsername = connectedUsername; 
+  if (!creatorUsername) return;
+
+  const groupId = `group-${Date.now()}`; 
+
+
+  rooms.set(groupId, {
+    owner: creatorUsername,
+    admins: new Set([creatorUsername]), 
+    members: new Set([creatorUsername]),
+  });
+
+ 
+  socket.join(groupId);
+
+
+  socket.emit('groupCreated', { groupId, groupName: data.groupName });
+
+
+  io.emit('updateGroupList', /* enviar a lista de todas as salas */);
+});
 
   socket.on('disconnect', () => {
     console.log(`❌ O cliente ${socket.id} desconectou.`);
