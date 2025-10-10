@@ -53,6 +53,11 @@ io.on('connection', (socket) => {
    socket.on('privateMessage', (data) => {
     // data deve ser um objeto como { to: 'nomeDoDestinatario', message: 'Olá!' }
 
+    console.log(' Evento "privateMessage" recebido!');
+  console.log(`   - De: (ID do socket: ${socket.id})`); 
+  console.log(`   - Para: ${data.to}`);
+  console.log(`   - Mensagem: "${data.message}"`);
+
     // 1. Encontrar o ID do socket do DESTINATÁRIO
     const recipientSocketId = onlineUsers.get(data.to);
 
