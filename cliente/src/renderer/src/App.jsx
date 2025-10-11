@@ -65,11 +65,23 @@ const ChatPage = () => {
   return <ChatView currentUser={currentUser} chatWithUser={chatWithUser} />;
 };
 
+const ChatGroupPage = () => {
+  const [searchParams] = useSearchParams();
+  const currentUser = searchParams.get('currentUser');
+
+  if (!currentUser) {
+    return <div>Informações do chat ausentes.</div>;
+  }
+  // O botão de voltar não é mais necessário, pois o usuário fecha a janela
+  return <p>Bem vindo ao chat em grupo { currentUser} </p>
+};
+
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<MainFlow />} />
       <Route path="/chat" element={<ChatPage />} />
+      <Route path="/chatGroup" element={<ChatGroupPage />} />
     </Routes>
   );
 }

@@ -59,6 +59,30 @@ ipcMain.on('open-chat-window', (event, chatInfo) => {
   createChatWindow(chatInfo)
 })
 
+function createChatGroupWindow(chatInfo) {
+  const chatWin = new BrowserWindow({
+    width: 500,
+    height: 700,
+    autoHideMenuBar: true,
+    title: 'Chat Group',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  const query = new URLSearchParams({
+    currentUser: chatInfo.currentUser,
+  }).toString()
+
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  chatWin.loadURL(`${rendererUrl}/#/chatGroup?${query}`) // Usando Hash Router para compatibilidade
+}
+
+ipcMain.on('open-chat-group-window', (event, chatInfo) => {
+  createChatGroupWindow(chatInfo)
+})
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
 

@@ -13,7 +13,7 @@ export function UserListView({ currentUser }) {
   };
 
   const handleCreateGroup = () => {
-
+    window.api.openChatGroupWindow({ currentUser });
   }
 
   // 3. Este useEffect agora gerencia a conexão e os listeners de forma mais estável

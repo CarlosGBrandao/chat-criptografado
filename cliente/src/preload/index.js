@@ -4,6 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 // APIs customizadas para o renderer
 const api = {
   openChatWindow: (data) => ipcRenderer.send('open-chat-window', data),
+  openChatGroupWindow: (data) => ipcRenderer.send('open-chat-group-window', data),
 }
 
 // Use `contextBridge` para expor as APIs de forma segura
