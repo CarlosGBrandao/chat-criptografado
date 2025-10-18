@@ -42,15 +42,14 @@ useEffect(() => {
   });
 }, []);
 
-  // ATUALIZADO: Envolvemos a função de envio em useCallback para garantir
+  //  Envolvemos a função de envio em useCallback para garantir
   // que ela sempre tenha acesso à versão mais recente de 'isChannelSecure'.
   const handleSendMessage = useCallback(() => {
     if (newMessage.trim() === '' || !isChannelSecure) {
       return;
     }
     
-    // SOLUÇÃO DEFINITIVA: Usando a API nativa TextEncoder para converter a string em Uint8Array.
-    // Isso remove a dependência da função 'encodeUTF8' que estava causando o problema.
+ 
     const messageUint8 = new TextEncoder().encode(newMessage);
     
     const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
@@ -73,10 +72,10 @@ useEffect(() => {
     setNewMessage('');
   }, [newMessage, isChannelSecure, currentUser, chatWithUser]);
 
-  // --- ESTRUTURA CORRIGIDA COM useEffects SEPARADOS ---
 
-  // Efeito 1: Lida APENAS com a conexão inicial e a solicitação da chave pública.
-  // Roda apenas uma vez quando o componente é montado.
+
+  //  Lida APENAS com a conexão inicial e a solicitação da chave pública.
+  
   useEffect(() => {
 
 if (!ownKeys) return;
@@ -104,8 +103,8 @@ if (!ownKeys) return;
   }, [currentUser, chatWithUser, ownKeys]); // Dependências estáveis, roda uma vez.
 
 
-  // Efeito 2: Lida APENAS com o recebimento de mensagens e respostas.
-  // Este hook se re-inscreve nos eventos se as dependências mudarem, sem causar um novo pedido de conexão.
+  //  Lida  com o recebimento de mensagens e respostas.
+  //
   useEffect(() => {
 
     if (!ownKeys) return;
@@ -148,7 +147,7 @@ if (!ownKeys) return;
     };
   }, [chatWithUser, recipientPublicKey, ownKeys]); // Depender de recipientPublicKey é crucial aqui
 
-  // NOVO: Efeito 4 - Processa a chave de sessão guardada assim que a chave pública chegar.
+  // Processa a chave de sessão guardada assim que a chave pública chegar.
   useEffect(() => {
     // Se temos uma chave de sessão pendente E a chave pública finalmente chegou...
     if (pendingSessionKey && recipientPublicKey) {
@@ -160,8 +159,8 @@ if (!ownKeys) return;
     }
   }, [pendingSessionKey, recipientPublicKey, ownKeys]);
 
-  // Efeito 3: Lida APENAS com o envio da chave de sessão (o iniciador).
-  // Este não mudou e já estava correto.
+  // Lida com o envio da chave de sessão (o iniciador).
+
 useEffect(() => {
 
   if (!ownKeys) return;
@@ -185,9 +184,7 @@ useEffect(() => {
         setIsChannelSecure(true);
         console.log('✅ Canal seguro estabelecido! Chave de sessão ENVIADA.');
       }
-      // Se eu NÃO sou o iniciador, este useEffect agora não faz NADA.
-      // O componente simplesmente espera passivamente pela mensagem 'session-key',
-      // que será tratada pelo listener no Efeito 2.
+     
     }
   }, [recipientPublicKey, isChannelSecure, currentUser, chatWithUser, ownKeys]);
 
@@ -211,7 +208,7 @@ useEffect(() => {
     }
   }, [ownKeys]);
 
-  // O JSX para renderizar a tela continua o mesmo
+
   return (
     <div className="bg-gray-900 min-h-screen flex justify-center items-center p-4 font-sans">
       <div className="bg-gray-800 rounded-lg shadow-2xl w-full h-full flex flex-col">
