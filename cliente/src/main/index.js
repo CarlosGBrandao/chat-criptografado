@@ -50,12 +50,16 @@ chatWin.webContents.openDevTools();
   const query = new URLSearchParams({
     currentUser: chatInfo.currentUser,
     chatWithUser: chatInfo.chatWithUser,
-    publicKey: chatInfo.keyInfo.publicKey,  
-    secretKey: chatInfo.keyInfo.secretKey
   }).toString()
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   chatWin.loadURL(`${rendererUrl}/#/chat?${query}`) // Usando Hash Router para compatibilidade
+chatWin.webContents.on('did-finish-load', () => {
+    chatWin.webContents.send('chat-keys', {
+      publicKey: chatInfo.keyInfo.publicKey,
+      secretKey: chatInfo.keyInfo.secretKey
+    });
+  });
 }
 
 ipcMain.on('open-chat-window', (event, chatInfo) => {

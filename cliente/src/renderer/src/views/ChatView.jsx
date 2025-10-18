@@ -18,17 +18,29 @@ export function ChatView() {
   const [searchParams] = useSearchParams();
   const currentUser = searchParams.get('currentUser');
   const chatWithUser = searchParams.get('chatWithUser');
-  const ownPublicKey = decodeBase64(searchParams.get('publicKey'));
-  const ownSecretKey = decodeBase64(searchParams.get('secretKey'));
+const [ownKeys, setOwnKeys] = useState(null);
 
-  const [pendingSessionKey, setPendingSessionKey] = useState(null);
 
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
+const [pendingSessionKey, setPendingSessionKey] = useState(null);
 
-  const [recipientPublicKey, setRecipientPublicKey] = useState(null);
-  const [isChannelSecure, setIsChannelSecure] = useState(false);
-  const sessionKey = useRef(null);
+const [messages, setMessages] = useState([]);
+const [newMessage, setNewMessage] = useState('');
+
+const [recipientPublicKey, setRecipientPublicKey] = useState(null);
+const [isChannelSecure, setIsChannelSecure] = useState(false);
+const sessionKey = useRef(null);
+
+
+useEffect(() => {
+  // A API 'window.api.onChatKeys' virá do nosso ficheiro de preload do Electron.
+  window.api.onChatKeys((keys) => {
+    console.log("🔑 Chaves recebidas do processo principal de forma segura.");
+    setOwnKeys({
+      publicKey: decodeBase64(keys.publicKey),
+      secretKey: decodeBase64(keys.secretKey)
+    });
+  });
+}, []);
 
   // ATUALIZADO: Envolvemos a função de envio em useCallback para garantir
   // que ela sempre tenha acesso à versão mais recente de 'isChannelSecure'.
@@ -66,6 +78,9 @@ export function ChatView() {
   // Efeito 1: Lida APENAS com a conexão inicial e a solicitação da chave pública.
   // Roda apenas uma vez quando o componente é montado.
   useEffect(() => {
+
+if (!ownKeys) return;
+
     const handleConnect = () => {
       console.log(`[EFEITO 1] Conectado! Registrando ${currentUser} e solicitando chave de ${chatWithUser}.`);
       socket.emit('register', currentUser);
@@ -86,12 +101,16 @@ export function ChatView() {
     return () => {
       socket.off('connect', handleConnect);
     };
-  }, [currentUser, chatWithUser]); // Dependências estáveis, roda uma vez.
+  }, [currentUser, chatWithUser, ownKeys]); // Dependências estáveis, roda uma vez.
 
 
   // Efeito 2: Lida APENAS com o recebimento de mensagens e respostas.
   // Este hook se re-inscreve nos eventos se as dependências mudarem, sem causar um novo pedido de conexão.
   useEffect(() => {
+
+    if (!ownKeys) return;
+
+    
     const handlePublicKeyResponse = (data) => {
       if (data.username === chatWithUser && data.publicKey) {
         setRecipientPublicKey(decodeBase64(data.publicKey));
@@ -127,7 +146,7 @@ export function ChatView() {
       socket.off('publicKeyResponse', handlePublicKeyResponse);
       socket.off('receiveMessage', receiveMessageHandler);
     };
-  }, [chatWithUser, ownSecretKey, recipientPublicKey]); // Depender de recipientPublicKey é crucial aqui
+  }, [chatWithUser, recipientPublicKey, ownKeys]); // Depender de recipientPublicKey é crucial aqui
 
   // NOVO: Efeito 4 - Processa a chave de sessão guardada assim que a chave pública chegar.
   useEffect(() => {
@@ -139,11 +158,14 @@ export function ChatView() {
       // ...e limpamos o buffer.
       setPendingSessionKey(null);
     }
-  }, [pendingSessionKey, recipientPublicKey, ownSecretKey]);
+  }, [pendingSessionKey, recipientPublicKey, ownKeys]);
 
   // Efeito 3: Lida APENAS com o envio da chave de sessão (o iniciador).
   // Este não mudou e já estava correto.
 useEffect(() => {
+
+  if (!ownKeys) return;
+
     // Só executa se tivermos a chave do outro e o canal AINDA não for seguro.
     if (recipientPublicKey && !isChannelSecure) {
       
@@ -153,7 +175,7 @@ useEffect(() => {
         const newSessionKey = nacl.randomBytes(nacl.secretbox.keyLength);
         sessionKey.current = newSessionKey;
         const nonce = nacl.randomBytes(nacl.box.nonceLength);
-        const encryptedKey = nacl.box(newSessionKey, nonce, recipientPublicKey, ownSecretKey);
+        const encryptedKey = nacl.box(newSessionKey, nonce, recipientPublicKey, ownKeys.secretKey);
         const payload = {
           type: 'session-key',
           box: encodeBase64(encryptedKey),
@@ -167,14 +189,17 @@ useEffect(() => {
       // O componente simplesmente espera passivamente pela mensagem 'session-key',
       // que será tratada pelo listener no Efeito 2.
     }
-  }, [recipientPublicKey, isChannelSecure, currentUser, chatWithUser, ownSecretKey]);
+  }, [recipientPublicKey, isChannelSecure, currentUser, chatWithUser, ownKeys]);
 
   const decryptAndSetSessionKey = useCallback((payload, senderPublicKey) => {
+
+    if (!ownKeys) return;
+
     const receivedSessionKey = nacl.box.open(
       decodeBase64(payload.box),
       decodeBase64(payload.nonce),
       senderPublicKey,
-      ownSecretKey
+      ownKeys.secretKey
     );
 
     if (receivedSessionKey) {
@@ -184,7 +209,7 @@ useEffect(() => {
     } else {
       console.error("Falha ao decifrar a chave de sessão!");
     }
-  }, [ownSecretKey]);
+  }, [ownKeys]);
 
   // O JSX para renderizar a tela continua o mesmo
   return (
