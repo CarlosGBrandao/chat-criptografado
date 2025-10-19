@@ -83,6 +83,7 @@ export function UserListProvider({ children, currentUser }) {
   const otherUsers = onlineUsers.filter(u => u !== currentUser);
 
   const value = {
+    currentUser,
     otherUsers,
     incomingRequests,
     pendingRequests,

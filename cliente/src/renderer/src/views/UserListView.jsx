@@ -2,9 +2,10 @@ import React, { useContext } from 'react'; //  Importar o hook 'useContext'
 import { UserIcon } from '../components/UserIcon';
 import { UserListContext } from '../contexts/UserListContext'; //  Importar o objeto de contexto
 
-export function UserListView({ currentUser }) {
+export function UserListView() {
 
   const {
+    currentUser,
     otherUsers,
     incomingRequests,
     pendingRequests,

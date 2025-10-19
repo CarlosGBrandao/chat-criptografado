@@ -5,6 +5,7 @@ import { UserListView } from './views/UserListView';
 import { ChatView } from './views/ChatView';
 // 1. Importar o UserListProvider que criamos
 import { UserListProvider } from './contexts/UserListContext';
+import { ChatContext, ChatProvider } from './contexts/ChatContext';
 
 // Componente para o fluxo principal (Login -> Lista de Usuários)
 const MainFlow = () => {
@@ -51,7 +52,7 @@ const MainFlow = () => {
  
   return (
     <UserListProvider currentUser={currentUser}>
-      <UserListView currentUser={currentUser} />
+      <UserListView/>
     </UserListProvider>
   );
 };
@@ -66,7 +67,11 @@ const ChatPage = () => {
     return <div>Informações do chat ausentes.</div>;
   }
   
-  return <ChatView currentUser={currentUser} chatWithUser={chatWithUser} />;
+  return (
+    <ChatProvider currentUser={currentUser} chatWithUser={chatWithUser}>
+      <ChatView />
+    </ChatProvider>
+  )
 };
 
 // Componente que prepara a página de chat em grupo
