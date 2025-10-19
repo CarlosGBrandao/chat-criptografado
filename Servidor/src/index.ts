@@ -21,6 +21,8 @@ app.use(cors());
 // CORREÇÃO: Agora um username mapeia para um CONJUNTO (Set) de socket IDs.
 const onlineUsers = new Map<string, Set<string>>();
 
+const publicKeys = new Map<string, string>();
+
 const rooms = new Map<string, {
   owner: string;     
   admins: Set<string>;
@@ -47,7 +49,56 @@ io.on('connection', (socket: Socket) => {
     io.emit('updateUserList', Array.from(onlineUsers.keys()));
   });
 
-  socket.on('privateMessage', (data: { to: string; message: string }) => {
+  // Handler para registrar a chave pública de um usuário
+  socket.on('registerPublicKey', (data: { publicKey: string }) => {
+    if (connectedUsername) {
+      console.log(`Chave pública registrada para '${connectedUsername}'`);
+      publicKeys.set(connectedUsername, data.publicKey);
+    }
+  });
+
+  // Handler para obter a chave pública de outro usuário
+  socket.on('getPublicKey', (data: { username: string }) => {
+    const publicKey = publicKeys.get(data.username);
+    if (publicKey) {
+      // Envia a chave de volta apenas para o solicitante
+      socket.emit('publicKeyResponse', { username: data.username, publicKey });
+    } else {
+      // informar que a chave não foi encontrada
+      socket.emit('publicKeyResponse', { username: data.username, publicKey: null });
+    }
+  });
+
+  socket.on('send-chat-request', (data: { to: string }) => {
+    const senderUsername = connectedUsername;
+    if (!senderUsername) return;
+
+    const recipientSocketIds = onlineUsers.get(data.to);
+    if (recipientSocketIds && recipientSocketIds.size > 0) {
+      console.log(`➡️ Pedido de chat de '${senderUsername}' para '${data.to}'`);
+      // Encaminha o pedido para TODAS as conexões do destinatário
+      recipientSocketIds.forEach(socketId => {
+        io.to(socketId).emit('receive-chat-request', { from: senderUsername });
+      });
+    }
+  });
+
+  // NOVO: Handler para quando um usuário ACEITA um pedido de chat
+  socket.on('accept-chat-request', (data: { to: string }) => {
+    const senderUsername = connectedUsername; // Quem aceitou
+    if (!senderUsername) return;
+
+    const recipientSocketIds = onlineUsers.get(data.to); // O solicitante original
+    if (recipientSocketIds && recipientSocketIds.size > 0) {
+      console.log(`✅ Pedido de chat de '${data.to}' aceito por '${senderUsername}'`);
+      // Avisa o solicitante original que seu pedido foi aceito
+      recipientSocketIds.forEach(socketId => {
+        io.to(socketId).emit('chat-request-accepted', { from: senderUsername });
+      });
+    }
+  });
+
+  socket.on('privateMessage', (data: { to: string; message: any }) => {
     const senderUsername = connectedUsername;
     if (!senderUsername) return;
 
@@ -55,13 +106,13 @@ io.on('connection', (socket: Socket) => {
     const recipientSocketIds = onlineUsers.get(data.to);
 
     if (recipientSocketIds && recipientSocketIds.size > 0) {
-      console.log(`Mensagem de '${senderUsername}' para '${data.to}': ${data.message}`);
+    
+      console.log(`Encaminhando mensagem segura de '${senderUsername}' para '${data.to}'`);
       
-      // Envia a mensagem para CADA socket ativo do destinatário.
       recipientSocketIds.forEach(socketId => {
-        io.to(socketId).emit('receiveMessage', {
+        io.to(socketId).emit('receiveMessage', { 
           from: senderUsername,
-          message: data.message,
+          message: data.message, // payload 
         });
       });
     } else {
@@ -106,6 +157,12 @@ io.on('connection', (socket: Socket) => {
           console.log(`Usuário '${connectedUsername}' ficou completamente offline.`);
         }
       }
+
+      if (!onlineUsers.has(connectedUsername)) {
+        publicKeys.delete(connectedUsername);
+        console.log(`🔑 Chave pública de '${connectedUsername}' removida.`);
+      }
+
       io.emit('updateUserList', Array.from(onlineUsers.keys()));
     }
   });
