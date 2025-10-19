@@ -61,8 +61,9 @@ const ChatPage = () => {
   const [searchParams] = useSearchParams();
   const currentUser = searchParams.get('currentUser');
   const chatWithUser = searchParams.get('chatWithUser');
+  const initiator = searchParams.get('initiator');
 
-  if (!currentUser || !chatWithUser) {
+  if (!currentUser || !chatWithUser || !initiator) {
     return <div>Informações do chat ausentes.</div>;
   }
   

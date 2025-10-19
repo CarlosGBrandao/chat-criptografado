@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useRef, useCallback } from 'react';
 import { socket } from '../socket';
 import nacl from 'tweetnacl';
 import { encodeBase64 } from 'tweetnacl-util';
+import log from 'electron-log/renderer';
 
 
 export const UserListContext = createContext();
@@ -13,13 +14,13 @@ export function UserListProvider({ children, currentUser }) {
   const [pendingRequests, setPendingRequests] = useState(new Set());
   const userKeys = useRef(null);
 
-  const handleOpenChatWindow = useCallback((chatWithUser) => {
+  const handleOpenChatWindow = useCallback((chatWithUser, initiator = false) => {
     if (!userKeys.current) return;
     const keyInfo = {
       publicKey: encodeBase64(userKeys.current.publicKey),
       secretKey: encodeBase64(userKeys.current.secretKey)
     };
-    window.api.openChatWindow({ currentUser, chatWithUser, keyInfo });
+    window.api.openChatWindow({ currentUser, chatWithUser, keyInfo, initiator});
   }, [currentUser]);
 
   const sendChatRequest = (user) => {
@@ -48,7 +49,14 @@ export function UserListProvider({ children, currentUser }) {
   useEffect(() => {
     if (!currentUser) return;
 
-    if (!userKeys.current) userKeys.current = nacl.box.keyPair();
+    if (!userKeys.current) {
+      userKeys.current = nacl.box.keyPair()
+      log.info(`Criando Par de  Chaves de ${currentUser} 
+
+      -Public key: ${encodeBase64(userKeys.current.publicKey)} 
+      -Secret Key: ${encodeBase64(userKeys.current.secretKey)}
+      `)
+    };
     if (!socket.connected) socket.connect();
 
     const onConnect = () => {
@@ -64,7 +72,7 @@ export function UserListProvider({ children, currentUser }) {
         newSet.delete(from);
         return newSet;
       });
-      handleOpenChatWindow(from);
+      handleOpenChatWindow(from, true);
     };
 
     socket.on('connect', onConnect);

@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from 'react-router-dom';
 import { socket } from '../socket';
-
+import log from 'electron-log/renderer';
 import nacl from 'tweetnacl';
 import { decodeBase64, encodeBase64, encodeUTF8, decodeUTF8 } from 'tweetnacl-util';
 
@@ -11,6 +11,7 @@ export function ChatProvider({children}){
     const [searchParams] = useSearchParams();
     const currentUser = searchParams.get('currentUser');
     const chatWithUser = searchParams.get('chatWithUser');
+    const initiator = searchParams.get('initiator');
     const [ownKeys, setOwnKeys] = useState(null);
 
 
@@ -27,7 +28,6 @@ export function ChatProvider({children}){
     useEffect(() => {
     // A API 'window.api.onChatKeys' virá do nosso ficheiro de preload do Electron.
     window.api.onChatKeys((keys) => {
-        console.log("🔑 Chaves recebidas do processo principal de forma segura.");
         setOwnKeys({
         publicKey: decodeBase64(keys.publicKey),
         secretKey: decodeBase64(keys.secretKey)
@@ -65,15 +65,12 @@ export function ChatProvider({children}){
     setNewMessage('');
     }, [newMessage, isChannelSecure, currentUser, chatWithUser]);
 
-
-
-  //  Lida APENAS com a conexão inicial e a solicitação da chave pública.
   
     useEffect(() => {
     if (!ownKeys) return;
 
         const handleConnect = () => {
-        console.log(`[EFEITO 1] Conectado! Registrando ${currentUser} e solicitando chave de ${chatWithUser}.`);
+        log.info(`Conectado! Registrando ${currentUser} e solicitando chave pública de ${chatWithUser}.`);
         socket.emit('register', currentUser);
         socket.emit('getPublicKey', { username: chatWithUser });
         };
@@ -104,6 +101,7 @@ export function ChatProvider({children}){
     
     const handlePublicKeyResponse = (data) => {
       if (data.username === chatWithUser && data.publicKey) {
+        log.info(`Chave pública de ${chatWithUser} recebida: ${data.publicKey} \n`);
         setRecipientPublicKey(decodeBase64(data.publicKey));
       }
     };
@@ -126,6 +124,7 @@ export function ChatProvider({children}){
       if (type === 'encrypted-message' && payload.ciphertext && payload.nonce && sessionKey.current) {
         const decryptedBytes = nacl.secretbox.open(decodeBase64(payload.ciphertext), decodeBase64(payload.nonce), sessionKey.current);
         if (decryptedBytes) {
+          log.info(`Mensagem Criptogradafa recebida: ${payload.ciphertext}`)
           setMessages(prev => [...prev, { from: data.from, message: new TextDecoder().decode(decryptedBytes) }]);
         }
       }
@@ -159,10 +158,10 @@ export function ChatProvider({children}){
 
     // Só executa se tivermos a chave do outro e o canal AINDA não for seguro.
     if (recipientPublicKey && !isChannelSecure) {
-      
+
       // A única lógica que resta é: se eu sou o iniciador criptográfico, eu envio a chave.
-      if (currentUser < chatWithUser) {
-        console.log('[EFEITO 3] Sou o iniciador. Gerando e enviando chave de sessão.');
+      if (initiator === "true") {
+        log.info('Sou o iniciador. Gerando e enviando chave de sessão.');
         const newSessionKey = nacl.randomBytes(nacl.secretbox.keyLength);
         sessionKey.current = newSessionKey;
         const nonce = nacl.randomBytes(nacl.box.nonceLength);
@@ -174,11 +173,16 @@ export function ChatProvider({children}){
         };
         socket.emit('privateMessage', { to: chatWithUser, message: payload });
         setIsChannelSecure(true);
-        console.log('✅ Canal seguro estabelecido! Chave de sessão ENVIADA.');
+        log.info(`Criando chave de sessão \n
+        ${encodeBase64(newSessionKey)} 
+        e nonce: ${encodeBase64(nonce)} \n`)
+        log.info(`Criptografando chave de sessão : ${encodeBase64(encryptedKey)}`)
+        log.info(`Enviando para ${chatWithUser}... \n`)
+        log.info('✅ Canal seguro estabelecido! Chave de sessão enviada.');
       }
      
     }
-  }, [recipientPublicKey, isChannelSecure, currentUser, chatWithUser, ownKeys]);
+  }, [recipientPublicKey, isChannelSecure, currentUser, chatWithUser, ownKeys,initiator]);
 
   const decryptAndSetSessionKey = useCallback((payload, senderPublicKey) => {
 
@@ -194,7 +198,12 @@ export function ChatProvider({children}){
     if (receivedSessionKey) {
       sessionKey.current = receivedSessionKey;
       setIsChannelSecure(true);
-      console.log('✅ Canal seguro estabelecido! Chave de sessão recebida e decifrada.');
+      log.info(`Chave de sessão criptografada: \n
+      ${payload.box} 
+      e nonce ${payload.nonce} recebidos
+      `);
+      log.info(`Chave de sessão descriptografada: ${encodeBase64(receivedSessionKey)} \n`);
+      log.info('✅ Canal seguro estabelecido! Chave de sessão recebida e decifrada.');
     } else {
       console.error("Falha ao decifrar a chave de sessão!");
     }

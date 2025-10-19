@@ -1,6 +1,5 @@
 node_modules
-../Servidor/node_modules
-dist
+../Servidor/node_modules/
 out
 .DS_Store
 .eslintcache

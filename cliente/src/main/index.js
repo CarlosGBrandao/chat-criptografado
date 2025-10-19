@@ -48,11 +48,10 @@ function createChatWindow(chatInfo) {
     }
   })
 
-chatWin.webContents.openDevTools();
-
   const query = new URLSearchParams({
     currentUser: chatInfo.currentUser,
     chatWithUser: chatInfo.chatWithUser,
+    initiator: chatInfo.initiator,
   }).toString()
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
