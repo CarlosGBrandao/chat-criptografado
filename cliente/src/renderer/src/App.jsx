@@ -1,54 +1,59 @@
-// src/App.jsx
 import React, { useState, useEffect } from 'react'; 
 import { Routes, Route, useSearchParams } from 'react-router-dom';
 import { LoginView } from './views/LoginView';
 import { UserListView } from './views/UserListView';
 import { ChatView } from './views/ChatView';
+// 1. Importar o UserListProvider que criamos
+import { UserListProvider } from './contexts/UserListContext';
 
 // Componente para o fluxo principal (Login -> Lista de Usuários)
 const MainFlow = () => {
   const [currentUser, setCurrentUser] = React.useState(null);
-
   const [serverStatus, setServerStatus] = useState({ 
     online: false, 
     message: 'Conectando ao servidor...' 
   });
 
-  // 3. Usar useEffect para fazer a chamada à API quando o componente carregar
   useEffect(() => {
     fetch('http://localhost:3000/api/status')
       .then(response => {
         if (!response.ok) {
-          // Se a resposta não for 2xx, lança um erro para cair no .catch()
           throw new Error('Servidor respondeu, mas com um erro.');
         }
         return response.json();
       })
       .then(data => {
-        // 4. Lógica para lidar com a resposta de SUCESSO do servidor
         console.log('Resposta do servidor:', data);
         setServerStatus({ online: true, message: data.mensagem });
       })
       .catch(error => {
-        // 5. Lógica para lidar com ERROS de conexão
         console.error('Erro ao conectar com o servidor:', error);
         setServerStatus({ 
           online: false, 
           message: 'Não foi possível conectar ao servidor. Verifique se ele está rodando e tente novamente.' 
         });
       });
-  }, []); // O array vazio [] garante que isso só rode uma vez
+  }, []);
 
-  // 6. Renderização condicional: Mostrar status ANTES da tela de login
   if (!serverStatus.online) {
-    // Se o servidor não estiver online, mostra a mensagem de status e para aqui
-    return <div>{serverStatus.message}</div>;
+    return (
+      <div className="bg-gray-900 min-h-screen text-white flex flex-col items-center justify-center font-sans">
+        <p className="text-xl">{serverStatus.message}</p>
+      </div>
+    );
   }
 
   if (!currentUser) {
     return <LoginView onLogin={setCurrentUser} />;
   }
-  return <UserListView currentUser={currentUser} />;
+
+  // Envolver o UserListView com o Provider
+ 
+  return (
+    <UserListProvider currentUser={currentUser}>
+      <UserListView currentUser={currentUser} />
+    </UserListProvider>
+  );
 };
 
 // Componente que prepara a página de chat lendo a URL
@@ -61,10 +66,10 @@ const ChatPage = () => {
     return <div>Informações do chat ausentes.</div>;
   }
   
-  // O botão de voltar não é mais necessário, pois o usuário fecha a janela
   return <ChatView currentUser={currentUser} chatWithUser={chatWithUser} />;
 };
 
+// Componente que prepara a página de chat em grupo
 const ChatGroupPage = () => {
   const [searchParams] = useSearchParams();
   const currentUser = searchParams.get('currentUser');
@@ -72,7 +77,7 @@ const ChatGroupPage = () => {
   if (!currentUser) {
     return <div>Informações do chat ausentes.</div>;
   }
-  // O botão de voltar não é mais necessário, pois o usuário fecha a janela
+
   return <p>Bem vindo ao chat em grupo { currentUser} </p>
 };
 
