@@ -3,9 +3,8 @@ import { Routes, Route, useSearchParams } from 'react-router-dom';
 import { LoginView } from './views/LoginView';
 import { UserListView } from './views/UserListView';
 import { ChatView } from './views/ChatView';
-// 1. Importar o UserListProvider que criamos
 import { UserListProvider } from './contexts/UserListContext';
-import { ChatContext, ChatProvider } from './contexts/ChatContext';
+import { ChatProvider } from './contexts/ChatContext';
 
 // Componente para o fluxo principal (Login -> Lista de Usuários)
 const MainFlow = () => {
