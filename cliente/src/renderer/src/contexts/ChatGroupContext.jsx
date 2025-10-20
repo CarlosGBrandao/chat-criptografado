@@ -29,6 +29,19 @@ export function ChatGroupProvider({ children }) {
 
     const [isGroupTerminated, setIsGroupTerminated] = useState(false);
 
+    useEffect(() => {
+    // A função retornada será chamada apenas quando o componente for desmontado
+    return () => {
+        if (currentUser === owner) {
+            log.info(`[DONO] Fechando a janela e encerrando o grupo ${groupId}.`);
+            socket.emit('owner-left-group', { groupId });
+        } else {
+            log.info(`[MEMBRO] Fechando a janela e saindo do grupo ${groupId}.`);
+            socket.emit('leave-group', { groupId });
+        }
+    };
+}, [groupId, currentUser, owner]);
+
     // 1. Obter as chaves do próprio usuário via Electron preload
     useEffect(() => {
         window.api.onChatKeys((keys) => {
@@ -84,19 +97,28 @@ export function ChatGroupProvider({ children }) {
   socket.on('publicKeyResponse', handlePublicKeyResponse);
   socket.on('group-terminated', handleGroupTerminated);
 
-  return () => {
-    socket.off('connect', handleConnect);
-    socket.off('publicKeyResponse', handlePublicKeyResponse);
-    socket.off('group-terminated', handleGroupTerminated);
+ /*
+    return () => {
+        socket.off('connect', handleConnect);
+        socket.off('publicKeyResponse', handlePublicKeyResponse);
+        socket.off('group-terminated', handleGroupTerminated);
 
-    if (currentUser === owner) {
-      log.info(`[DONO] Saindo e encerrando o grupo ${groupId}.`);
-      socket.emit('owner-left-group', { groupId });
-    } else {
-      log.info(`[MEMBRO] Saindo do grupo ${groupId}.`);
-      socket.emit('leave-group', { groupId });
-    }
-  };
+        if (currentUser === owner) {
+            log.info(`[DONO] Saindo e encerrando o grupo ${groupId}.`);
+            socket.emit('owner-left-group', { groupId });
+        } else {
+            log.info(`[MEMBRO] Saindo do grupo ${groupId}.`);
+            socket.emit('leave-group', { groupId });
+        }
+    };
+    */
+
+    return () => {
+        socket.off('connect', handleConnect);
+        socket.off('publicKeyResponse', handlePublicKeyResponse);
+        socket.off('group-terminated', handleGroupTerminated);
+    };
+
 }, [ownKeys, groupId, currentUser, members, owner, isGroupTerminated]);
 
 
@@ -157,6 +179,11 @@ export function ChatGroupProvider({ children }) {
 
             const ownerPublicKey = membersPublicKeys.get(data.from);
             if(ownerPublicKey) {
+
+              log.info(`[MEMBRO] Chave de sessao criptografada de '${data.from}' recebida:\n` +
+                     `  Box: ${data.keyPayload.box}\n` +
+                     `  Nonce: ${data.keyPayload.nonce}`);
+
                 const receivedKey = nacl.box.open(
                     decodeBase64(data.keyPayload.box),
                     decodeBase64(data.keyPayload.nonce),
@@ -166,6 +193,9 @@ export function ChatGroupProvider({ children }) {
                 if (receivedKey) {
                     groupSessionKey.current = receivedKey;
                     setIsChannelSecure(true);
+
+                    log.info(`[MEMBRO] Chave de sessao decifrada: ${encodeBase64(receivedKey)}`);
+                log.info(`✅ Canal seguro estabelecido para o grupo '${groupName}'!`);
                     log.info(`[MEMBRO] Nova chave de sessão decifrada com sucesso para o grupo ${groupName}. Canal seguro!`);
                 } else { // NOVO LOG
                     log.error(`[MEMBRO] FALHA ao decifrar a chave de sessão recebida de '${data.from}'.`);
@@ -201,8 +231,12 @@ export function ChatGroupProvider({ children }) {
             log.info(`Membros do grupo atualizados: ${data.message}`);
             setMembers(data.members); // Atualiza a lista de membros local
             setIsChannelSecure(false); // Canal fica inseguro até a nova chave chegar
-            log.warn(`[SEGURANÇA] O canal do grupo '${groupName}' tornou-se INSEGURO devido à mudança de membros. Aguardando nova chave do dono.`);
+            log.warn(`[SEGURANÇA] O canal do grupo '${groupName}' tornou-se INSEGURO devido a mudança de membros. Aguardando nova chave do dono.`);
             
+            if (currentUser === owner) {
+        log.info(`[DONO] A mudança de membros iniciou o processo de atualizacao da chave (re-keying).`);
+    }
+
             // O callback 'generateAndDistributeKey' será re-executado pelo useEffect no passo 3
             // porque a dependência 'members' mudou.
         };
