@@ -133,7 +133,7 @@ io.on('connection', (socket: Socket) => {
     };
     
     pendingGroups.set(groupId, newPendingGroup);
-    console.log(`⏳ Grupo pendente criado por ${creator}: ${groupName} (ID: ${groupId})`);
+   console.log(`⏳ Grupo pendente '${groupName}' (ID: ${groupId}) criado por ${creator}. Convidando: [${members.join(', ')}]`);
     
     members.forEach(memberUsername => {
       const recipientSocketIds = onlineUsers.get(memberUsername);
@@ -156,11 +156,13 @@ io.on('connection', (socket: Socket) => {
     const group = pendingGroups.get(data.groupId);
     if (!group || group.membersStatus.get(user) !== 'pending') return;
 
+    console.log(` Usuário '${user}' aceitou o convite para o grupo '${group.groupName}' (ID: ${data.groupId})`);
+
     group.membersStatus.set(user, 'accepted');
     const allAccepted = Array.from(group.membersStatus.values()).every(status => status === 'accepted');
 
     if (allAccepted) {
-      console.log(`🎉 Todos aceitaram! Criando grupo ativo "${group.groupName}"`);
+      console.log(` Todos aceitaram! Criando grupo ativo "${group.groupName}"`);
       
       const newActiveGroup: ActiveGroup = {
         groupId: group.groupId,
@@ -176,6 +178,8 @@ io.on('connection', (socket: Socket) => {
         owner: group.createdBy,
         members: group.allMembers,
       };
+
+      console.log(` Notificando [${group.allMembers.join(', ')}] para iniciar o chat do grupo '${group.groupName}'`);
 
       group.allMembers.forEach(member => {
         const memberSockets = onlineUsers.get(member);
@@ -198,6 +202,8 @@ io.on('connection', (socket: Socket) => {
     const sender = connectedUsername;
     if (!sender) return;
 
+    console.log(` Mensagem de '${sender}' sendo encaminhada para a sala do grupo ${data.groupId}`);
+
     socket.to(data.groupId).emit('receive-group-message', {
         from: sender,
         groupId: data.groupId,
@@ -208,6 +214,8 @@ io.on('connection', (socket: Socket) => {
   socket.on('distribute-new-group-key', (data: { to: string, groupId: string, keyPayload: any }) => {
     const owner = connectedUsername;
     if (!owner) return;
+
+    console.log(` [KEY] Dono '${owner}' está distribuindo uma nova chave de sessão para '${data.to}' no grupo ${data.groupId}`);
 
     const recipientSocketIds = onlineUsers.get(data.to);
     if(recipientSocketIds){
@@ -261,9 +269,10 @@ io.on('connection', (socket: Socket) => {
     if (group && group.members.has(user)) {
       group.members.delete(user);
       socket.leave(data.groupId);
-      console.log(`Usuário ${user} saiu do grupo ${data.groupId}`);
+      console.log(` Usuário '${user}' saiu voluntariamente do grupo '${group.groupName}' (${data.groupId})`);
 
       // Notifica os membros restantes sobre a mudança para que o dono possa criar uma nova chave
+      console.log(` Notificando membros restantes do grupo ${data.groupId} sobre a mudança.`);
       io.to(data.groupId).emit('group-membership-changed', {
         groupId: data.groupId,
         members: Array.from(group.members),
