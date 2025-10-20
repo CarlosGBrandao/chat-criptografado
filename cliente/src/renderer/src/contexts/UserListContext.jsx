@@ -94,7 +94,7 @@ export function UserListProvider({ children, currentUser }) {
 
     // Listener para receber um convite de grupo
     const handleGroupInvitation = (inviteData) => {
-      console.log('Convite de grupo recebido:', inviteData);
+      log.info(`[CONVITE] Convite recebido de '${inviteData.from}' para o grupo '${inviteData.groupName}' (ID: ${inviteData.groupId})`);
       // inviteData deve ser um objeto como: { groupId, groupName, from }
       setIncomingGroupInvites(prevInvites => [...prevInvites, inviteData]);
     };
@@ -148,12 +148,14 @@ export function UserListProvider({ children, currentUser }) {
   const sendGroupInvitation = (groupName, selectedUsers) => {
     if (!socket) return alert('Conexão não estabelecida.');
     
-    console.log(`Enviando convites para o grupo '${groupName}' para:`, selectedUsers);
+    log.info(`[GRUPO] Enviando convites para o grupo '${groupName}' para: [${selectedUsers.join(', ')}]`);
     socket.emit('send-group-invite', { groupName, members: selectedUsers });
   };
 
   const acceptGroupInvite = (groupId) => {
     if (!socket) return alert('Conexão não estabelecida.');
+
+    log.info(`[CONVITE] Aceitando convite para o grupo ID: ${groupId}`);
     
     socket.emit('accept-group-invite', { groupId });
     
@@ -169,6 +171,8 @@ export function UserListProvider({ children, currentUser }) {
    */
   const declineGroupInvite = (groupId) => {
     if (!socket) return alert('Conexão não estabelecida.');
+
+    log.info(`[CONVITE] Recusando convite para o grupo ID: ${groupId}`);
     
     socket.emit('decline-group-invite', { groupId });
 

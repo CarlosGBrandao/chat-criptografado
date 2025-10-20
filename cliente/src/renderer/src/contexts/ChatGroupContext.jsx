@@ -129,6 +129,8 @@ export function ChatGroupProvider({ children }) {
                         nonce: encodeBase64(nonce)
                     };
 
+                    log.info(`[DONO] Criptografando e enviando chave de sessão para '${member}'`);
+
                     socket.emit('distribute-new-group-key', {
                         to: member,
                         groupId,
@@ -164,8 +166,12 @@ export function ChatGroupProvider({ children }) {
                 if (receivedKey) {
                     groupSessionKey.current = receivedKey;
                     setIsChannelSecure(true);
-                    log.info(`[MEMBRO] Nova chave de sessão recebida e decifrada para o grupo ${groupName}. Canal seguro!`);
+                    log.info(`[MEMBRO] Nova chave de sessão decifrada com sucesso para o grupo ${groupName}. Canal seguro!`);
+                } else { // NOVO LOG
+                    log.error(`[MEMBRO] FALHA ao decifrar a chave de sessão recebida de '${data.from}'.`);
                 }
+            } else { // NOVO LOG
+                log.warn(`[MEMBRO] Recebi uma chave de sessão, mas ainda não tenho a chave pública de '${data.from}'.`);
             }
         };
 
@@ -174,13 +180,17 @@ export function ChatGroupProvider({ children }) {
             if (data.groupId !== groupId) return;
             const key = groupSessionKey.current;
             if(key && data.message.ciphertext){
+              log.info(`[MSG] Recebendo mensagem cifrada de '${data.from}' no grupo '${groupName}'.`);
                 const decryptedBytes = nacl.secretbox.open(
                     decodeBase64(data.message.ciphertext),
                     decodeBase64(data.message.nonce),
                     key
                 );
                 if(decryptedBytes){
+                  log.info(`[MSG] Mensagem de '${data.from}' decifrada com sucesso.`);
                     setMessages(prev => [...prev, {from: data.from, message: new TextDecoder().decode(decryptedBytes)}]);
+                } else {
+                  log.error(`[MSG] FALHA ao decifrar mensagem de '${data.from}' no grupo '${groupName}'.`);
                 }
             }
         };
@@ -191,6 +201,7 @@ export function ChatGroupProvider({ children }) {
             log.info(`Membros do grupo atualizados: ${data.message}`);
             setMembers(data.members); // Atualiza a lista de membros local
             setIsChannelSecure(false); // Canal fica inseguro até a nova chave chegar
+            log.warn(`[SEGURANÇA] O canal do grupo '${groupName}' tornou-se INSEGURO devido à mudança de membros. Aguardando nova chave do dono.`);
             
             // O callback 'generateAndDistributeKey' será re-executado pelo useEffect no passo 3
             // porque a dependência 'members' mudou.
@@ -212,6 +223,8 @@ export function ChatGroupProvider({ children }) {
     // 5. Função para enviar mensagem
     const handleSendMessage = useCallback(() => {
         if (newMessage.trim() === '' || !isChannelSecure || isGroupTerminated) return;
+
+        log.info(`[MSG] Criptografando e enviando mensagem para o grupo '${groupName}'`);
     
         const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
         const key = groupSessionKey.current;
@@ -227,7 +240,7 @@ export function ChatGroupProvider({ children }) {
         socket.emit('group-message', { groupId, message: payload });
         setMessages(prev => [...prev, { from: currentUser, message: newMessage }]);
         setNewMessage('');
-    }, [newMessage, isChannelSecure, currentUser, groupId]);
+    }, [newMessage, isChannelSecure, currentUser, groupId, groupName, isGroupTerminated]); // checar essas dependencias
 
 
     const value = {
