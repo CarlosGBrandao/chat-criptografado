@@ -2,6 +2,23 @@ import express, { Request, Response } from 'express';
 import http from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import cors from 'cors';
+import { v4 as uuidv4 } from 'uuid'; // Importa o gerador de UUID
+
+// --- TIPAGEM AUXILIAR ---
+type PendingGroup = {
+  groupId: string;
+  groupName: string;
+  createdBy: string;
+  allMembers: string[];
+  membersStatus: Map<string, 'pending' | 'accepted'>;
+};
+
+type ActiveGroup = {
+  groupId: string;
+  groupName: string;
+  owner: string;
+  members: Set<string>;
+};
 
 // --- CONFIGURAÇÃO INICIAL ---
 const app = express();
@@ -9,7 +26,7 @@ const port = 3000;
 const httpServer = http.createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: "*",
+    origin: "*", // Em produção, restrinja para o seu domínio
     methods: ["GET", "POST"]
   }
 });
@@ -17,17 +34,11 @@ const io = new SocketIOServer(httpServer, {
 // --- MIDDLEWARES ---
 app.use(cors());
 
-
-// CORREÇÃO: Agora um username mapeia para um CONJUNTO (Set) de socket IDs.
+// --- ESTADO DO SERVIDOR EM MEMÓRIA ---
 const onlineUsers = new Map<string, Set<string>>();
-
 const publicKeys = new Map<string, string>();
-
-const rooms = new Map<string, {
-  owner: string;     
-  admins: Set<string>;
-  members: Set<string>; 
-}>();
+const pendingGroups = new Map<string, PendingGroup>();
+const activeGroups = new Map<string, ActiveGroup>();
 
 // --- LÓGICA DO SOCKET.IO ---
 io.on('connection', (socket: Socket) => {
@@ -35,21 +46,19 @@ io.on('connection', (socket: Socket) => {
   
   let connectedUsername: string | null = null;
 
+  // --- Handlers de Registro e Chaves ---
   socket.on('register', (username: string) => {
     connectedUsername = username;
     
-    // Se for a primeira conexão deste usuário, crie um novo Set para ele.
     if (!onlineUsers.has(username)) {
       onlineUsers.set(username, new Set());
     }
-    // Adicione o novo socket ID ao Set de conexões do usuário.
     onlineUsers.get(username)!.add(socket.id);
 
     console.log(`Usuário '${username}' registrou a conexão ${socket.id}`);
     io.emit('updateUserList', Array.from(onlineUsers.keys()));
   });
 
-  // Handler para registrar a chave pública de um usuário
   socket.on('registerPublicKey', (data: { publicKey: string }) => {
     if (connectedUsername) {
       console.log(`Chave pública registrada para '${connectedUsername}'`);
@@ -57,18 +66,12 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
-  // Handler para obter a chave pública de outro usuário
   socket.on('getPublicKey', (data: { username: string }) => {
     const publicKey = publicKeys.get(data.username);
-    if (publicKey) {
-      // Envia a chave de volta apenas para o solicitante
-      socket.emit('publicKeyResponse', { username: data.username, publicKey });
-    } else {
-      // informar que a chave não foi encontrada
-      socket.emit('publicKeyResponse', { username: data.username, publicKey: null });
-    }
+    socket.emit('publicKeyResponse', { username: data.username, publicKey: publicKey || null });
   });
 
+  // --- Handlers de Chat 1-para-1 ---
   socket.on('send-chat-request', (data: { to: string }) => {
     const senderUsername = connectedUsername;
     if (!senderUsername) return;
@@ -76,14 +79,12 @@ io.on('connection', (socket: Socket) => {
     const recipientSocketIds = onlineUsers.get(data.to);
     if (recipientSocketIds && recipientSocketIds.size > 0) {
       console.log(`➡️ Pedido de chat de '${senderUsername}' para '${data.to}'`);
-      // Encaminha o pedido para TODAS as conexões do destinatário
       recipientSocketIds.forEach(socketId => {
         io.to(socketId).emit('receive-chat-request', { from: senderUsername });
       });
     }
   });
 
-  // NOVO: Handler para quando um usuário ACEITA um pedido de chat
   socket.on('accept-chat-request', (data: { to: string }) => {
     const senderUsername = connectedUsername; // Quem aceitou
     if (!senderUsername) return;
@@ -91,7 +92,6 @@ io.on('connection', (socket: Socket) => {
     const recipientSocketIds = onlineUsers.get(data.to); // O solicitante original
     if (recipientSocketIds && recipientSocketIds.size > 0) {
       console.log(`✅ Pedido de chat de '${data.to}' aceito por '${senderUsername}'`);
-      // Avisa o solicitante original que seu pedido foi aceito
       recipientSocketIds.forEach(socketId => {
         io.to(socketId).emit('chat-request-accepted', { from: senderUsername });
       });
@@ -102,17 +102,13 @@ io.on('connection', (socket: Socket) => {
     const senderUsername = connectedUsername;
     if (!senderUsername) return;
 
-    // Pega o CONJUNTO de sockets do destinatário.
     const recipientSocketIds = onlineUsers.get(data.to);
-
     if (recipientSocketIds && recipientSocketIds.size > 0) {
-    
       console.log(`Encaminhando mensagem segura de '${senderUsername}' para '${data.to}'`);
-      
       recipientSocketIds.forEach(socketId => {
         io.to(socketId).emit('receiveMessage', { 
           from: senderUsername,
-          message: data.message, // payload 
+          message: data.message,
         });
       });
     } else {
@@ -120,61 +116,262 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
-  socket.on('createGroup', (data: { groupName: string }) => {
-  const creatorUsername = connectedUsername; 
-  if (!creatorUsername) return;
+  // --- Handlers de Lógica de Grupo ---
+  socket.on('send-group-invite', (data: { groupName: string; members: string[] }) => {
+    const creator = connectedUsername;
+    if (!creator) return;
 
-  const groupId = `group-${Date.now()}`; 
-
-
-  rooms.set(groupId, {
-    owner: creatorUsername,
-    admins: new Set([creatorUsername]), 
-    members: new Set([creatorUsername]),
+    const groupId = uuidv4();
+    const { groupName, members } = data;
+    
+    const newPendingGroup: PendingGroup = {
+      groupId,
+      groupName,
+      createdBy: creator,
+      allMembers: [creator, ...members],
+      membersStatus: new Map(members.map(m => [m, 'pending'])),
+    };
+    
+    pendingGroups.set(groupId, newPendingGroup);
+    console.log(`⏳ Grupo pendente criado por ${creator}: ${groupName} (ID: ${groupId})`);
+    
+    members.forEach(memberUsername => {
+      const recipientSocketIds = onlineUsers.get(memberUsername);
+      if (recipientSocketIds && recipientSocketIds.size > 0) {
+        console.log(`- Enviando convite do grupo '${groupName}' para ${memberUsername}`);
+        recipientSocketIds.forEach(socketId => {
+          io.to(socketId).emit('group-invitation-received', {
+            groupId,
+            groupName,
+            from: creator,
+          });
+        });
+      }
+    });
   });
 
- 
-  socket.join(groupId);
+  socket.on('accept-group-invite', (data: { groupId: string }) => {
+    const user = connectedUsername;
+    if (!user) return;
+    const group = pendingGroups.get(data.groupId);
+    if (!group || group.membersStatus.get(user) !== 'pending') return;
 
+    group.membersStatus.set(user, 'accepted');
+    const allAccepted = Array.from(group.membersStatus.values()).every(status => status === 'accepted');
 
-  socket.emit('groupCreated', { groupId, groupName: data.groupName });
+    if (allAccepted) {
+      console.log(`🎉 Todos aceitaram! Criando grupo ativo "${group.groupName}"`);
+      
+      const newActiveGroup: ActiveGroup = {
+        groupId: group.groupId,
+        groupName: group.groupName,
+        owner: group.createdBy,
+        members: new Set(group.allMembers),
+      };
+      activeGroups.set(group.groupId, newActiveGroup);
 
+      const groupData = {
+        groupId: group.groupId,
+        groupName: group.groupName,
+        owner: group.createdBy,
+        members: group.allMembers,
+      };
 
-  io.emit('updateGroupList', /* enviar a lista de todas as salas */);
-});
+      group.allMembers.forEach(member => {
+        const memberSockets = onlineUsers.get(member);
+        if (memberSockets) {
+          memberSockets.forEach(socketId => {
+            io.to(socketId).emit('group-chat-starting', groupData);
+          });
+        }
+      });
+      pendingGroups.delete(data.groupId);
+    }
+  });
 
+  socket.on('join-group-room', (groupId: string) => {
+    socket.join(groupId);
+    console.log(`Usuário ${connectedUsername} entrou na sala do grupo ${groupId}`);
+  });
+
+  socket.on('group-message', (data: { groupId: string, message: any }) => {
+    const sender = connectedUsername;
+    if (!sender) return;
+
+    socket.to(data.groupId).emit('receive-group-message', {
+        from: sender,
+        groupId: data.groupId,
+        message: data.message
+    });
+  });
+
+  socket.on('distribute-new-group-key', (data: { to: string, groupId: string, keyPayload: any }) => {
+    const owner = connectedUsername;
+    if (!owner) return;
+
+    const recipientSocketIds = onlineUsers.get(data.to);
+    if(recipientSocketIds){
+        recipientSocketIds.forEach(socketId => {
+            io.to(socketId).emit('receive-new-group-key', {
+                from: owner,
+                groupId: data.groupId,
+                keyPayload: data.keyPayload
+            });
+        });
+    }
+  });
+
+  // ======= CORREÇÃO: proteger OWNER-LEFT para só encerrar quando dono realmente estiver offline =======
+  socket.on('owner-left-group', ({ groupId }: { groupId: string }) => {
+    const owner = connectedUsername;
+    if (!owner) return;
+
+    // 1) Se o grupo não existe mais, ignora (idempotência)
+    const group = activeGroups.get(groupId);
+    if (!group) {
+      console.log(`owner-left-group: grupo ${groupId} não encontrado (já encerrado?). Ignorando.`);
+      return;
+    }
+
+    // 2) Verifica se quem emitiu realmente é o dono
+    if (group.owner !== owner) {
+      console.log(`owner-left-group: usuário ${owner} não é dono do grupo ${groupId}. Ignorando.`);
+      return;
+    }
+
+    // 3) Verifica se o dono ainda tem outras conexões ativas. 
+    // Se tiver, não encerra o grupo — possivelmente o owner só fechou uma aba.
+    const ownerSockets = onlineUsers.get(owner);
+    if (ownerSockets && ownerSockets.size > 1) {
+      console.log(`owner-left-group: dono ${owner} tem ${ownerSockets.size} conexão(ões) ativas. Não encerra o grupo ${groupId}.`);
+      return;
+    }
+
+    // 4) Se chegou até aqui, o dono realmente saiu — encerra o grupo e notifica membros.
+    console.log(`Dono do grupo ${groupId} saiu (owner-left-group). Encerrando o grupo.`);
+    io.to(groupId).emit('group-terminated', { groupId });
+    activeGroups.delete(groupId);
+  });
+
+  socket.on('leave-group', (data: { groupId: string }) => {
+    const user = connectedUsername;
+    if (!user) return;
+
+    const group = activeGroups.get(data.groupId);
+    if (group && group.members.has(user)) {
+      group.members.delete(user);
+      socket.leave(data.groupId);
+      console.log(`Usuário ${user} saiu do grupo ${data.groupId}`);
+
+      // Notifica os membros restantes sobre a mudança para que o dono possa criar uma nova chave
+      io.to(data.groupId).emit('group-membership-changed', {
+        groupId: data.groupId,
+        members: Array.from(group.members),
+        message: `${user} saiu do grupo.`,
+      });
+    }
+  });
+
+  socket.on('decline-group-invite', (data: { groupId: string }) => {
+    const user = connectedUsername;
+    if (!user) return;
+
+    const group = pendingGroups.get(data.groupId);
+    if (!group) return;
+
+    console.log(`👎 ${user} recusou o convite para o grupo "${group.groupName}"`);
+    const reason = `${user} recusou o convite.`;
+
+    group.allMembers.forEach(member => {
+      const memberSockets = onlineUsers.get(member);
+      if (memberSockets) {
+        memberSockets.forEach(socketId => {
+          io.to(socketId).emit('group-creation-failed', {
+            groupName: group.groupName,
+            reason,
+          });
+        });
+      }
+    });
+    pendingGroups.delete(data.groupId); // Limpa o grupo da lista de pendentes
+  });
+
+  // --- Handler de Desconexão (CORRIGIDO e com Tipagem Segura) ---
   socket.on('disconnect', () => {
     console.log(`❌ O cliente ${socket.id} desconectou.`);
-    if (connectedUsername) {
-      const userSockets = onlineUsers.get(connectedUsername);
-      if (userSockets) {
-        // Remove este socket específico do Set do usuário.
-        userSockets.delete(socket.id);
-        
-        // Se o usuário não tem mais nenhuma conexão ativa, remova-o da lista.
-        if (userSockets.size === 0) {
-          onlineUsers.delete(connectedUsername);
-          console.log(`Usuário '${connectedUsername}' ficou completamente offline.`);
-        }
-      }
-
-      if (!onlineUsers.has(connectedUsername)) {
-        publicKeys.delete(connectedUsername);
-        console.log(`🔑 Chave pública de '${connectedUsername}' removida.`);
-      }
-
-      io.emit('updateUserList', Array.from(onlineUsers.keys()));
+    
+    if (!connectedUsername) {
+        return;
     }
+
+    const user: string = connectedUsername;
+
+    const userSockets = onlineUsers.get(user);
+    if (userSockets) {
+        userSockets.delete(socket.id);
+    }
+
+    // Se ainda existe alguma conexão ativa para esse usuário, não considera-o offline
+    if (userSockets && userSockets.size > 0) {
+        console.log(`Usuário '${user}' ainda tem ${userSockets.size} conexão(ões) ativa(s). Nenhuma ação de grupo será tomada.`);
+        return;
+    }
+
+    // Usuário ficou completamente offline
+    console.log(`Usuário '${user}' ficou completamente offline. Processando saída de grupos...`);
+
+    // Itera sobre grupos ativos para lidar com a saída do usuário
+    activeGroups.forEach((group, groupId) => {
+        if (group.owner === user) {
+            // Só encerra se o grupo ainda existir (idempotência)
+            if (activeGroups.has(groupId)) {
+                console.log(`[DONO] Dono do grupo ${groupId} desconectou. Encerrando o grupo.`);
+                io.to(groupId).emit('group-terminated', { groupId });
+                activeGroups.delete(groupId);
+            }
+        } else if (group.members.has(user)) {
+            group.members.delete(user);
+            io.to(groupId).emit('group-membership-changed', {
+                groupId,
+                members: Array.from(group.members),
+                message: `${user} se desconectou.`
+            });
+        }
+    });
+
+    // Itera sobre grupos pendentes para cancelar convites
+    pendingGroups.forEach((group, groupId) => {
+        if (group.allMembers.includes(user)) {
+            console.log(`👎 Usuário ${user} desconectou durante convite. Cancelando grupo "${group.groupName}".`);
+            const reason = `${user} se desconectou antes de responder.`;
+            group.allMembers.forEach(member => {
+                if (member !== user) {
+                    const memberSockets = onlineUsers.get(member);
+                    if (memberSockets) {
+                        memberSockets.forEach(socketId => {
+                            io.to(socketId).emit('group-creation-failed', { groupName: group.groupName, reason });
+                        });
+                    }
+                }
+            });
+            pendingGroups.delete(groupId);
+        }
+    });
+
+    // Lógica final de limpeza do usuário
+    onlineUsers.delete(user);
+    publicKeys.delete(user);
+    io.emit('updateUserList', Array.from(onlineUsers.keys()));
   });
 });
 
 // --- ROTAS DO EXPRESS E INICIALIZAÇÃO ---
 app.get('/', (req: Request, res: Response) => {
-  res.send('Olá, mundo com Node.js e TypeScript!');
+  res.send('Servidor de Chat - Node.js e TypeScript');
 });
 
 app.get('/api/status', (req: Request, res: Response) => {
-  res.json({ status: 'online', mensagem: 'Servidor está funcionando perfeitamente!' });
+  res.json({ status: 'online', users: onlineUsers.size });
 });
 
 httpServer.listen(port, () => {
