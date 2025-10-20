@@ -54,8 +54,10 @@ export function ChatGroupProvider({ children }) {
     }, []);
 
     // 2. Conectar, registrar, entrar na sala e buscar chaves públicas dos outros membros
+
+    
     useEffect(() => {
-  if (!ownKeys || !groupId) return;
+  if (!ownKeys || !groupId || isGroupTerminated) return;
 
   const handleConnect = () => {
     socket.emit('register', currentUser);
