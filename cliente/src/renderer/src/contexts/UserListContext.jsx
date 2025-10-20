@@ -12,6 +12,7 @@ export function UserListProvider({ children, currentUser }) {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [incomingRequests, setIncomingRequests] = useState(new Set());
   const [pendingRequests, setPendingRequests] = useState(new Set());
+  const [incomingGroupInvites, setIncomingGroupInvites] = useState([]);
   const userKeys = useRef(null);
 
   const handleOpenChatWindow = useCallback((chatWithUser, initiator = false) => {
@@ -88,6 +89,95 @@ export function UserListProvider({ children, currentUser }) {
     };
   }, [currentUser, handleOpenChatWindow]);
 
+  useEffect(() => {
+    if (!socket) return; // Não faz nada se o socket não estiver conectado
+
+    // Listener para receber um convite de grupo
+    const handleGroupInvitation = (inviteData) => {
+      console.log('Convite de grupo recebido:', inviteData);
+      // inviteData deve ser um objeto como: { groupId, groupName, from }
+      setIncomingGroupInvites(prevInvites => [...prevInvites, inviteData]);
+    };
+
+    // Listener para quando um grupo é finalmente criado e a janela de chat deve ser aberta
+    const handleGroupChatStart = (groupData) => {
+      console.log('Iniciando chat de grupo:', groupData);
+      // groupData deve ser algo como: { groupId, groupName, members }
+      if (!userKeys.current) return;
+      const keyInfo = {
+        publicKey: encodeBase64(userKeys.current.publicKey),
+        secretKey: encodeBase64(userKeys.current.secretKey)
+      };
+      // Abre a janela de chat do grupo usando a API do preload
+      if (window.api && window.api.openChatGroupWindow) {
+        window.api.openChatGroupWindow({...groupData, currentUser,keyInfo});
+      } else {
+        console.error('API openChatGroupWindow não encontrada no preload!');
+      }
+
+      // Opcional: Limpa o convite correspondente da UI
+      setIncomingGroupInvites(prevInvites => 
+        prevInvites.filter(invite => invite.groupId !== groupData.groupId)
+      );
+    };
+    
+    // Listener para caso a criação do grupo falhe (alguém recusou)
+    const handleGroupCreationFailed = ({ groupName, reason }) => {
+        alert(`A criação do grupo "${groupName}" falhou. Motivo: ${reason}`);
+        // Aqui você pode implementar uma lógica para remover convites pendentes que você enviou
+    };
+
+    // Registrar os listeners
+    socket.on('group-invitation-received', handleGroupInvitation);
+    socket.on('group-chat-starting', handleGroupChatStart);
+    socket.on('group-creation-failed', handleGroupCreationFailed);
+
+    // Função de limpeza para remover os listeners quando o componente desmontar
+    return () => {
+      socket.off('group-invitation-received', handleGroupInvitation);
+      socket.off('group-chat-starting', handleGroupChatStart);
+      socket.off('group-creation-failed', handleGroupCreationFailed);
+    };
+  }, [socket]);
+
+  /**
+   * Envia convites para um novo grupo para o servidor.
+   * @param {string} groupName - O nome do grupo desejado.
+   * @param {string[]} selectedUsers - Um array com os usernames dos usuários convidados.
+   */
+  const sendGroupInvitation = (groupName, selectedUsers) => {
+    if (!socket) return alert('Conexão não estabelecida.');
+    
+    console.log(`Enviando convites para o grupo '${groupName}' para:`, selectedUsers);
+    socket.emit('send-group-invite', { groupName, members: selectedUsers });
+  };
+
+  const acceptGroupInvite = (groupId) => {
+    if (!socket) return alert('Conexão não estabelecida.');
+    
+    socket.emit('accept-group-invite', { groupId });
+    
+    // Remove o convite da UI imediatamente para o usuário não clicar duas vezes
+    setIncomingGroupInvites(prevInvites => 
+      prevInvites.filter(invite => invite.groupId !== groupId)
+    );
+  };
+
+  /**
+   * Recusa um convite de grupo.
+   * @param {string} groupId - O ID do convite/grupo que está sendo recusado.
+   */
+  const declineGroupInvite = (groupId) => {
+    if (!socket) return alert('Conexão não estabelecida.');
+    
+    socket.emit('decline-group-invite', { groupId });
+
+    // Remove o convite da UI
+    setIncomingGroupInvites(prevInvites => 
+      prevInvites.filter(invite => invite.groupId !== groupId)
+    );
+  };
+
   const otherUsers = onlineUsers.filter(u => u !== currentUser);
 
   const value = {
@@ -95,9 +185,13 @@ export function UserListProvider({ children, currentUser }) {
     otherUsers,
     incomingRequests,
     pendingRequests,
+    incomingGroupInvites,
     sendChatRequest,
     acceptChatRequest,
     declineChatRequest,
+    sendGroupInvitation,
+    acceptGroupInvite,
+    declineGroupInvite,
   };
 
   return (

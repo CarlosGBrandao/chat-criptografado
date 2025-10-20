@@ -5,6 +5,8 @@ import { UserListView } from './views/UserListView';
 import { ChatView } from './views/ChatView';
 import { UserListProvider } from './contexts/UserListContext';
 import { ChatProvider } from './contexts/ChatContext';
+import { ChatGroupProvider } from './contexts/ChatGroupContext';
+import { ChatGroupView } from './views/ChatGroupView';
 
 // Componente para o fluxo principal (Login -> Lista de Usuários)
 const MainFlow = () => {
@@ -83,7 +85,11 @@ const ChatGroupPage = () => {
     return <div>Informações do chat ausentes.</div>;
   }
 
-  return <p>Bem vindo ao chat em grupo { currentUser} </p>
+  return (
+    <ChatGroupProvider>
+      <ChatGroupView/>
+    </ChatGroupProvider>
+  )
 };
 
 export default function App() {

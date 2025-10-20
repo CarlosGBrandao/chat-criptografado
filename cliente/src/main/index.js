@@ -82,10 +82,20 @@ function createChatGroupWindow(chatInfo) {
 
   const query = new URLSearchParams({
     currentUser: chatInfo.currentUser,
+    groupId: chatInfo.groupId,
+    groupName: chatInfo.groupName,
+    owner: chatInfo.owner,
+    members: chatInfo.members,
   }).toString()
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
-  chatWin.loadURL(`${rendererUrl}/#/chatGroup?${query}`) // Usando Hash Router para compatibilidade
+  chatWin.loadURL(`${rendererUrl}/#/chatGroup?${query}`) 
+  chatWin.webContents.on('did-finish-load', () => {
+    chatWin.webContents.send('chat-keys', {
+      publicKey: chatInfo.keyInfo.publicKey,
+      secretKey: chatInfo.keyInfo.secretKey
+    });
+  });// Usando Hash Router para compatibilidade
 }
 
 ipcMain.on('open-chat-group-window', (event, chatInfo) => {
