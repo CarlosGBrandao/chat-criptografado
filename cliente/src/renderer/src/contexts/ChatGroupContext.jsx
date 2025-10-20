@@ -244,7 +244,28 @@ export function ChatGroupProvider({ children }) {
         const handleMembershipChange = (data) => {
             if (data.groupId !== groupId) return;
             log.info(`Membros do grupo atualizados: ${data.message}`);
-            setMembers(data.members); // Atualiza a lista de membros local
+           const newMembersList = data.members; // A nova lista correta de membros
+    setMembers(newMembersList); // Atualiza o estado dos membros
+
+    // --- A CORREÇÃO ESTÁ AQUI ---
+    // Sincroniza o mapa de chaves públicas com a nova lista de membros.
+    setMembersPublicKeys(currentMap => {
+        const newMap = new Map();
+        // Usar um Set é mais eficiente para verificar a existência de um membro
+        const currentMembersSet = new Set(newMembersList);
+
+        // Itera sobre o mapa de chaves antigo
+        for (const [username, pubKey] of currentMap.entries()) {
+            // Mantém a chave pública apenas se o 'username' estiver na nova lista de membros
+            if (currentMembersSet.has(username)) {
+                newMap.set(username, pubKey);
+            }
+        }
+        
+        log.info(`[DONO] Mapa de chaves públicas sincronizado. Mantendo chaves para: [${Array.from(newMap.keys()).join(', ')}]`);
+        
+        return newMap;
+    });
             setIsChannelSecure(false); // Canal fica inseguro até a nova chave chegar
             log.warn(`[SEGURANÇA] O canal do grupo '${groupName}' tornou-se INSEGURO devido a mudança de membros. Aguardando nova chave do dono.`);
             
