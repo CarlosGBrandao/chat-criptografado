@@ -136,7 +136,17 @@ export function ChatGroupProvider({ children }) {
         log.info(`[DONO] Condições atendidas. Gerando e distribuindo nova chave de sessão para o grupo ${groupName}.`);
         const newKey = nacl.randomBytes(nacl.secretbox.keyLength);
         groupSessionKey.current = newKey; // O dono define a chave para si mesmo
-        setIsChannelSecure(true); // <<-- ISSO RESOLVE O PROBLEMA
+        setIsChannelSecure(true); 
+
+        log.info(`[DONO] Chave de sessao (secreta) gerada para o grupo: ${encodeBase64(newKey)}`);
+
+        const publicKeysLog = Array.from(membersPublicKeys.entries())
+        .map(([username, pubKey]) => `  - ${username}: ${encodeBase64(pubKey)}`)
+        .join('\n');
+
+    if (publicKeysLog) {
+         log.info(`[DONO] Chaves publicas dos membros que serao usadas para criptografia:\n${publicKeysLog}`);
+    }
 
         // Criptografa e envia a chave para cada membro individualmente
         members.forEach(member => {
@@ -145,13 +155,17 @@ export function ChatGroupProvider({ children }) {
                 if (recipientPublicKey) {
                     const nonce = nacl.randomBytes(nacl.box.nonceLength);
                     const encryptedKey = nacl.box(newKey, nonce, recipientPublicKey, ownKeys.secretKey);
+
+                    log.info(`[DONO] Criptografando chave para '${member}':\n` +
+                         `  Box: ${encodeBase64(encryptedKey)}\n` +
+                         `  Nonce: ${encodeBase64(nonce)}`);
                     
                     const keyPayload = {
                         box: encodeBase64(encryptedKey),
                         nonce: encodeBase64(nonce)
                     };
 
-                    log.info(`[DONO] Criptografando e enviando chave de sessão para '${member}'`);
+                    
 
                     socket.emit('distribute-new-group-key', {
                         to: member,
@@ -169,6 +183,7 @@ export function ChatGroupProvider({ children }) {
     }, [generateAndDistributeKey]);
 
 
+    
     // 4. Lógica para receber mensagens, chaves e atualizações de membros
     useEffect(() => {
         if (!ownKeys) return;
