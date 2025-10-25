@@ -7,7 +7,7 @@ import { UserListProvider } from './contexts/UserListContext';
 import { ChatProvider } from './contexts/ChatContext';
 import { ChatGroupProvider } from './contexts/ChatGroupContext';
 import { ChatGroupView } from './views/ChatGroupView';
-
+import { SocketProvider } from './contexts/SocketContext';
 // Componente para o fluxo principal (Login -> Lista de Usuários)
 const MainFlow = () => {
   const [currentUser, setCurrentUser] = React.useState(null);
@@ -94,10 +94,12 @@ const ChatGroupPage = () => {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<MainFlow />} />
-      <Route path="/chat" element={<ChatPage />} />
-      <Route path="/chatGroup" element={<ChatGroupPage />} />
-    </Routes>
+    <SocketProvider>
+      <Routes>
+        <Route path="/" element={<MainFlow />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/chatGroup" element={<ChatGroupPage />} />
+      </Routes>
+    </SocketProvider>
   );
 }
