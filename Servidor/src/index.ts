@@ -111,6 +111,16 @@ io.on('connection', (socket: Socket) => {
     socket.to(data.roomName).emit("partner-disconnected")
   })
 
+  socket.on("disconnecting", () => {
+    console.log(socket.rooms); 
+    for (const room of socket.rooms) {
+      if (room !== socket.id) {
+        console.log(`   ...avisando sala ${room} que saiu.`);
+        socket.to(room).emit('partner-disconnected');
+      }
+    }
+  });
+
   socket.on('disconnect', () => {
     if (!connectedUsername) return;
 

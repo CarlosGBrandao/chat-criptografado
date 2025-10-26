@@ -106,10 +106,12 @@ export function ChatProvider({ children }) {
     socket.on('publicKeyResponse', handlePublicKeyResponse)
     socket.on('receiveMessage', receiveMessageHandler)
     socket.on('partner-disconnected', handlePartnerDisconnect)
+    socket.on("disconnecting", handlePartnerDisconnect)
     return () => {
       socket.off('publicKeyResponse', handlePublicKeyResponse)
       socket.off('receiveMessage', receiveMessageHandler)
       socket.off('partner-disconnected', handlePartnerDisconnect)
+      socket.off("disconnecting", handlePartnerDisconnect)
     }
   }, [socket])
 
