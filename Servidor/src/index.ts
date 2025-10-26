@@ -77,6 +77,15 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
+  socket.on('reject-chat-request', (data: { to: string }) => {
+    if (!connectedUsername) return;
+    const recipientSocketId = onlineUsers.get(data.to);
+    if (recipientSocketId) {
+      console.log(`✅ Chat request rejeitado por '${connectedUsername}' para '${data.to}'`);
+      io.to(recipientSocketId).emit('chat-request-reject', { from: connectedUsername });
+    }
+  });
+
   socket.on('privateMessage', (data: { to: string; message: any }) => {
     if (!connectedUsername) return;
     const recipientSocketId = onlineUsers.get(data.to);

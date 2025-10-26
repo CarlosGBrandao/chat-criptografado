@@ -20,7 +20,7 @@ export function UserListProvider({ children, currentUser }) {
 
     if (!userKeys.current) {
       userKeys.current = nacl.box.keyPair()
-    log.info(`Criando Par de  Chaves de ${currentUser} 
+      log.info(`Criando Par de  Chaves de ${currentUser} 
 
     -Public key: ${encodeBase64(userKeys.current.publicKey)} 
     -Secret Key: ${encodeBase64(userKeys.current.secretKey)}
@@ -33,18 +33,18 @@ export function UserListProvider({ children, currentUser }) {
     }
 
     const handleDisconnect = () => {
-      log.info(`${currentUser} desconectou`);
-    };
+      log.info(`${currentUser} desconectou`)
+    }
 
     if (socket.connected) {
-    registerUser();
+      registerUser()
     }
 
     socket.on('connect', registerUser)
     socket.on('disconnect', handleDisconnect)
     return () => {
       socket.off('connect', registerUser)
-      socket.on('disconnect', handleDisconnect)
+      socket.off('disconnect', handleDisconnect)
     }
   }, [currentUser, socket])
 
@@ -52,31 +52,98 @@ export function UserListProvider({ children, currentUser }) {
   useEffect(() => {
     if (!socket) return
 
-    const onUpdateUserList = (users) => setOnlineUsers(users);
+    const onUpdateUserList = (users) => setOnlineUsers(users)
     const handleIncomingRequest = ({ from }) => {
-      setIncomingRequests((prev) => new Set(prev).add(from))
+      setIncomingRequests((prev) => {
+        const newSet = new Set(prev)
+        newSet.add(from)
+        return newSet
+      })
       log.info(`Nova solicitação de chat de ${from}`)
+    }
+    const handleRequestAccepted = ({ from }) => {
+      setPendingRequests((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(from)
+        return newSet
+      })
+      window.api.openChatWindow({
+        currentUser,
+        chatWithUser: from,
+        initiator: true,
+        keyInfo: { publicKey: userKeys.current.publicKey, secretKey: userKeys.current.secretKey }
+      })
+    }
+    const handleRequestRejected = ({from}) => {
+      setPendingRequests((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(from)
+        return newSet
+      })
     }
 
     socket.on('receive-chat-request', handleIncomingRequest)
-    socket.on('updateUserList', onUpdateUserList);
-
+    socket.on('chat-request-accepted', handleRequestAccepted)
+    socket.on('chat-request-reject', handleRequestRejected)
+    socket.on('updateUserList', onUpdateUserList)
     return () => {
       socket.off('receive-chat-request', handleIncomingRequest)
-      socket.off('updateUserList', onUpdateUserList);
+      socket.off('chat-request-accepted', handleRequestAccepted)
+      socket.off('updateUserList', onUpdateUserList)
     }
   }, [socket])
 
   const sendChatRequest = (targetUserId) => {
-    if (!socket || !currentUser) return;
+    if (!socket || !currentUser) return
 
-    setPendingRequests(prev => new Set(prev).add(targetUserId));
+    setPendingRequests((prev) => {
+      const newSet = new Set(prev) 
+      newSet.delete(targetUserId) 
+      return newSet
+    })
 
     socket.emit('send-chat-request', {
       from: currentUser.id,
-      to: targetUserId,
-    });
-  };
+      to: targetUserId
+    })
+  }
+
+  const acceptChatRequest = (targetUserId) => {
+    if (!socket || !currentUser) return
+
+    setIncomingRequests((prev) => {
+      const newSet = new Set(prev) 
+      newSet.delete(targetUserId) 
+      return newSet
+    })
+
+    socket.emit('accept-chat-request', {
+      from: currentUser,
+      to: targetUserId
+    })
+
+    window.api.openChatWindow({
+      currentUser,
+      chatWithUser: targetUserId,
+      initiator: false,
+      keyInfo: { publicKey: userKeys.current.publicKey, secretKey: userKeys.current.secretKey }
+    })
+  }
+
+  const declineChatRequest = (targetUserId) => {
+    if (!socket || !currentUser) return
+
+    setIncomingRequests((prev) => {
+      const newSet = new Set(prev) 
+      newSet.delete(targetUserId) 
+      return newSet
+    })
+    
+    socket.emit('reject-chat-request', {
+      from: currentUser,
+      to: targetUserId
+    })
+  }
 
   const otherUsers = onlineUsers.filter((u) => u !== currentUser)
 
@@ -85,10 +152,10 @@ export function UserListProvider({ children, currentUser }) {
     otherUsers,
     sendChatRequest,
     acceptChatRequest,
-    // declineChatRequest,
+    declineChatRequest,
     incomingRequests,
     pendingRequests,
-    incomingGroupInvites,
+    incomingGroupInvites
     // sendGroupInvitation,
     // acceptGroupInvite,
     // declineGroupInvite,
