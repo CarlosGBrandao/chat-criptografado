@@ -1,6 +1,6 @@
 // src/views/ChatView.jsx
 
-import React, { useContext } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { ChatContext } from '../contexts/ChatContext';
 
 const StatusIndicator = ({ isSecure }) => (
@@ -19,21 +19,41 @@ export function ChatView() {
     newMessage,
     setNewMessage,
     handleSendMessage,
+    handleBack,
+    partnerLeft
   } = useContext(ChatContext);
+
+  useEffect(() => {
+    if (partnerLeft) {
+      alert(`${chatWithUser} saiu da conversa. Você será redirecionado.`);
+      handleBack();
+    }
+  }, [partnerLeft]);
 
   return (
     <div className="bg-gray-900 min-h-screen flex justify-center items-center p-4 font-sans">
       <div className="bg-gray-800 rounded-lg shadow-2xl w-full h-full flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-gray-700 flex-shrink-0">
-          <div className="flex items-center">
-            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center mr-3 text-white font-bold">
-              {chatWithUser.charAt(0).toUpperCase()}
+          {/* 4. Ajuste o layout para justificar o espaço */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center mr-3 text-white font-bold">
+                {chatWithUser.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <p className="text-lg font-semibold text-white">Conversando com {chatWithUser}</p>
+                <StatusIndicator isSecure={isChannelSecure} />
+              </div>
             </div>
-            <div>
-              <p className="text-lg font-semibold text-white">Conversando com {chatWithUser}</p>
-              <StatusIndicator isSecure={isChannelSecure} />
-            </div>
+
+            {/* 5. Adicione o botão de voltar */}
+            <button
+              onClick={ () => {handleBack()}}
+              className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg"
+            >
+              Voltar
+            </button>
           </div>
         </div>
 

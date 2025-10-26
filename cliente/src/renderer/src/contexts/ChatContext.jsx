@@ -1,213 +1,212 @@
-import React, { createContext, useState, useEffect, useRef, useCallback } from "react";
-import { useSearchParams } from 'react-router-dom';
-import { socket } from '../socket';
-import log from 'electron-log/renderer';
-import nacl from 'tweetnacl';
-import { decodeBase64, encodeBase64, encodeUTF8, decodeUTF8 } from 'tweetnacl-util';
+import React, { createContext, useState, useEffect, useRef, useCallback, useContext } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import log from 'electron-log/renderer'
+import nacl from 'tweetnacl'
+import { decodeBase64, encodeBase64 } from 'tweetnacl-util' // Removi encode/decodeUTF8 não usados
+import { SocketContext } from './SocketContext'
+import { UserListContext } from './UserListContext' // <<< 1. IMPORTAR O CONTEXTO DA LISTA
 
-export const ChatContext = createContext();
+export const ChatContext = createContext()
 
-export function ChatProvider({children}){
-    const [searchParams] = useSearchParams();
-    const currentUser = searchParams.get('currentUser');
-    const chatWithUser = searchParams.get('chatWithUser');
-    const initiator = searchParams.get('initiator');
-    const [ownKeys, setOwnKeys] = useState(null);
+export function ChatProvider({ children }) {
+  const navigate  = useNavigate();
+  const [searchParams] = useSearchParams()
+  const currentUser = searchParams.get('currentUser')
+  const chatWithUser = searchParams.get('chatWithUser')
+  const initiator = searchParams.get('initiator')
 
+  // --- CONTEXTOS ---
+  const { socket } = useContext(SocketContext)
+  const { userKeys } = useContext(UserListContext)
 
-    const [pendingSessionKey, setPendingSessionKey] = useState(null);
+  // --- ESTADO LOCAL ---
+  const [ownKeys, setOwnKeys] = useState(userKeys)
+  const [pendingSessionKey, setPendingSessionKey] = useState(null)
+  const [messages, setMessages] = useState([])
+  const [newMessage, setNewMessage] = useState('')
+  const [recipientPublicKey, setRecipientPublicKey] = useState(null)
+  const [isChannelSecure, setIsChannelSecure] = useState(false)
+  const [partnerLeft, setPartnerLeft] = useState(false);
+  const sessionKey = useRef(null)
 
-    const [messages, setMessages] = useState([]);
-    const [newMessage, setNewMessage] = useState('');
+  const roomName = React.useMemo(() => {
+    if (!currentUser || !chatWithUser) return null
+    return [currentUser, chatWithUser].sort().join('--')
+  }, [currentUser, chatWithUser])
 
-    const [recipientPublicKey, setRecipientPublicKey] = useState(null);
-    const [isChannelSecure, setIsChannelSecure] = useState(false);
-    const sessionKey = useRef(null);
+  useEffect(() => {
+    log.info(`(ChatProvider) Iniciando chat com ${chatWithUser}. Resetando estado...`)
+    setMessages([])
+    setRecipientPublicKey(null)
+    setIsChannelSecure(false)
+    setPendingSessionKey(null)
+    sessionKey.current = null
+    setNewMessage('')
+  }, [chatWithUser])
 
+  //Conexão na Room
+  useEffect(() => {
+    if (!ownKeys || !socket || !roomName || !chatWithUser || !currentUser) {
+      return
+    }
 
-    useEffect(() => {
-    // A API 'window.api.onChatKeys' virá do nosso ficheiro de preload do Electron.
-    window.api.onChatKeys((keys) => {
-        setOwnKeys({
-        publicKey: decodeBase64(keys.publicKey),
-        secretKey: decodeBase64(keys.secretKey)
-        });
-    });
-    }, []);
+    log.info(`${currentUser} Entrando na sala ${roomName} e buscando chave de ${chatWithUser}.`)
+    socket.emit('joinChatRoom', { roomName: roomName, username: currentUser })
+    socket.emit('getPublicKey', { username: chatWithUser })
+  }, [socket])
 
-    //  Envolvemos a função de envio em useCallback para garantir
-    // que ela sempre tenha acesso à versão mais recente de 'isChannelSecure'.
-    const handleSendMessage = useCallback(() => {
-        if (newMessage.trim() === '' || !isChannelSecure) {
-        return;
-        }
-    
- 
-    const messageUint8 = new TextEncoder().encode(newMessage);
-    
-    const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
-    const key = sessionKey.current;
-
-    // Agora, todos os inputs para a função de criptografia estão corretos.
-    const encryptedMessage = nacl.secretbox(
-      messageUint8,
-      nonce,
-      key
-    );
-    
-    const payload = {
-      type: 'encrypted-message',
-      ciphertext: encodeBase64(encryptedMessage),
-      nonce: encodeBase64(nonce)
-    };
-    socket.emit('privateMessage', { to: chatWithUser, message: payload });
-    setMessages(prev => [...prev, { from: currentUser, message: newMessage }]);
-    setNewMessage('');
-    }, [newMessage, isChannelSecure, currentUser, chatWithUser]);
-
-  
-    useEffect(() => {
-    if (!ownKeys) return;
-
-        const handleConnect = () => {
-        log.info(`Conectado! Registrando ${currentUser} e solicitando chave pública de ${chatWithUser}.`);
-        socket.emit('register', currentUser);
-        socket.emit('getPublicKey', { username: chatWithUser });
-        };
-
-        if (!socket.connected) {
-        socket.connect();
-        }
-
-        socket.on('connect', handleConnect);
-        
-        // Se já estiver conectado quando o componente abrir, executa a lógica manualmente.
-        if (socket.connected) {
-        handleConnect();
-        }
-
-        return () => {
-        socket.off('connect', handleConnect);
-        };
-    }, [currentUser, chatWithUser, ownKeys]); // Dependências estáveis, roda uma vez.
-
-
-    //  Lida  com o recebimento de mensagens e respostas.
-    //
-    useEffect(() => {
-
-        if (!ownKeys) return;
-
-    
+  useEffect(() => {
+    if (!ownKeys || !socket) return
     const handlePublicKeyResponse = (data) => {
       if (data.username === chatWithUser && data.publicKey) {
-        log.info(`Chave pública de ${chatWithUser} recebida: ${data.publicKey} \n`);
-        setRecipientPublicKey(decodeBase64(data.publicKey));
+        log.info(`Chave pública de ${chatWithUser} recebida: ${data.publicKey} \n`)
+        setRecipientPublicKey(decodeBase64(data.publicKey))
       }
-    };
+    }
 
     const receiveMessageHandler = (data) => {
-      if (data.from !== chatWithUser) return;
-      const { type, ...payload } = data.message;
-      
+      log.info('Mensagem Recebida', data)
+      const { type, ...payload } = data.message
+
       if (type === 'session-key') {
-        // Se a chave pública JÁ chegou, processamos imediatamente.
         if (recipientPublicKey) {
-          decryptAndSetSessionKey(payload, recipientPublicKey);
+          decryptAndSetSessionKey(payload, recipientPublicKey)
         } else {
-          // Se NÃO chegou, guardamos a session-key para processar depois.
-          console.warn("Chave de sessão recebida ANTES da chave pública. Guardando para depois.");
-          setPendingSessionKey(payload);
+          console.warn('Chave de sessão recebida ANTES da chave pública. Guardando para depois.')
+          setPendingSessionKey(payload)
         }
       }
-      
-      if (type === 'encrypted-message' && payload.ciphertext && payload.nonce && sessionKey.current) {
-        const decryptedBytes = nacl.secretbox.open(decodeBase64(payload.ciphertext), decodeBase64(payload.nonce), sessionKey.current);
+
+      if (
+        type === 'encrypted-message' &&
+        payload.ciphertext &&
+        payload.nonce &&
+        sessionKey.current
+      ) {
+        const decryptedBytes = nacl.secretbox.open(
+          decodeBase64(payload.ciphertext),
+          decodeBase64(payload.nonce),
+          sessionKey.current
+        )
         if (decryptedBytes) {
-          log.info(`Mensagem Criptogradafa recebida: ${payload.ciphertext}`)
-          setMessages(prev => [...prev, { from: data.from, message: new TextDecoder().decode(decryptedBytes) }]);
+          log.info(`Mensagem Criptografada recebida: ${payload.ciphertext}`)
+          setMessages((prev) => [
+            ...prev,
+            { from: data.from, message: new TextDecoder().decode(decryptedBytes) }
+          ])
         }
       }
+    }
+
+    const handlePartnerDisconnect = () => {     
+      log.warn(`${chatWithUser} saiu da conversa.`);
+      setPartnerLeft(true);   
     };
-    
-    socket.on('publicKeyResponse', handlePublicKeyResponse);
-    socket.on('receiveMessage', receiveMessageHandler);
+
+    socket.on('publicKeyResponse', handlePublicKeyResponse)
+    socket.on('receiveMessage', receiveMessageHandler)
+    socket.on('partner-disconnected', handlePartnerDisconnect)
     return () => {
-      socket.off('publicKeyResponse', handlePublicKeyResponse);
-      socket.off('receiveMessage', receiveMessageHandler);
-    };
-    }, [chatWithUser, recipientPublicKey, ownKeys]); // Depender de recipientPublicKey é crucial aqui
+      socket.off('publicKeyResponse', handlePublicKeyResponse)
+      socket.off('receiveMessage', receiveMessageHandler)
+      socket.off('partner-disconnected', handlePartnerDisconnect)
+    }
+  }, [socket])
 
-  // Processa a chave de sessão guardada assim que a chave pública chegar.
-    useEffect(() => {
-        // Se temos uma chave de sessão pendente E a chave pública finalmente chegou...
-        if (pendingSessionKey && recipientPublicKey) {
-        console.log("[EFEITO 4] Processando a chave de sessão que estava guardada...");
-        // ...processamos a chave pendente...
-        decryptAndSetSessionKey(pendingSessionKey, recipientPublicKey);
-        // ...e limpamos o buffer.
-        setPendingSessionKey(null);
-        }
-    }, [pendingSessionKey, recipientPublicKey, ownKeys]);
+  useEffect(() => {
+    if (pendingSessionKey && recipientPublicKey) {
+      console.log('Processando a chave de sessão que estava guardada...')
+      decryptAndSetSessionKey(pendingSessionKey, recipientPublicKey)
+      setPendingSessionKey(null)
+    }
+  }, [pendingSessionKey])
 
-  // Lida com o envio da chave de sessão (o iniciador).
+  useEffect(() => {
+    if (!ownKeys || !socket || !roomName || !recipientPublicKey) return
 
-    useEffect(() => {
-
-    if (!ownKeys) return;
-
-    // Só executa se tivermos a chave do outro e o canal AINDA não for seguro.
     if (recipientPublicKey && !isChannelSecure) {
+      if (initiator === 'true') {
+        log.info('Sou o iniciador. Gerando e enviando chave de sessão.')
+        const newSessionKey = nacl.randomBytes(nacl.secretbox.keyLength)
+        sessionKey.current = newSessionKey
+        const nonce = nacl.randomBytes(nacl.box.nonceLength)
+        const encryptedKey = nacl.box(newSessionKey, nonce, recipientPublicKey, ownKeys.secretKey)
 
-      // A única lógica que resta é: se eu sou o iniciador criptográfico, eu envio a chave.
-      if (initiator === "true") {
-        log.info('Sou o iniciador. Gerando e enviando chave de sessão.');
-        const newSessionKey = nacl.randomBytes(nacl.secretbox.keyLength);
-        sessionKey.current = newSessionKey;
-        const nonce = nacl.randomBytes(nacl.box.nonceLength);
-        const encryptedKey = nacl.box(newSessionKey, nonce, recipientPublicKey, ownKeys.secretKey);
         const payload = {
           type: 'session-key',
           box: encodeBase64(encryptedKey),
           nonce: encodeBase64(nonce)
-        };
-        socket.emit('privateMessage', { to: chatWithUser, message: payload });
-        setIsChannelSecure(true);
-        log.info(`Criando chave de sessão \n
-        ${encodeBase64(newSessionKey)} 
-        e nonce: ${encodeBase64(nonce)} \n`)
+        }
+
+        socket.emit('messageToRoom', { roomName: roomName, message: payload })
+
+        setIsChannelSecure(true)
+        log.info(
+          `Criando chave de sessão \n ${encodeBase64(newSessionKey)} \n e nonce: ${encodeBase64(nonce)} \n`
+        )
         log.info(`Criptografando chave de sessão : ${encodeBase64(encryptedKey)}`)
         log.info(`Enviando para ${chatWithUser}... \n`)
-        log.info('✅ Canal seguro estabelecido! Chave de sessão enviada.');
+        log.info('✅ Canal seguro estabelecido! Chave de sessão enviada.')
       }
-     
     }
-  }, [recipientPublicKey, isChannelSecure, currentUser, chatWithUser, ownKeys,initiator]);
+  }, [recipientPublicKey, isChannelSecure, socket])
 
-  const decryptAndSetSessionKey = useCallback((payload, senderPublicKey) => {
 
-    if (!ownKeys) return;
-
-    const receivedSessionKey = nacl.box.open(
-      decodeBase64(payload.box),
-      decodeBase64(payload.nonce),
-      senderPublicKey,
-      ownKeys.secretKey
-    );
-
-    if (receivedSessionKey) {
-      sessionKey.current = receivedSessionKey;
-      setIsChannelSecure(true);
-      log.info(`Chave de sessão criptografada: \n
-      ${payload.box} 
-      e nonce ${payload.nonce} recebidos
-      `);
-      log.info(`Chave de sessão descriptografada: ${encodeBase64(receivedSessionKey)} \n`);
-      log.info('✅ Canal seguro estabelecido! Chave de sessão recebida e decifrada.');
-    } else {
-      console.error("Falha ao decifrar a chave de sessão!");
+  const handleSendMessage = useCallback(() => {
+    if (newMessage.trim() === '' || !isChannelSecure || !socket || !roomName) {
+      return
     }
-  }, [ownKeys]);
+
+    const messageUint8 = new TextEncoder().encode(newMessage)
+    const nonce = nacl.randomBytes(nacl.secretbox.nonceLength)
+    const key = sessionKey.current
+
+    const encryptedMessage = nacl.secretbox(messageUint8, nonce, key)
+
+    const payload = {
+      type: 'encrypted-message',
+      ciphertext: encodeBase64(encryptedMessage),
+      nonce: encodeBase64(nonce)
+    }
+    socket.emit('messageToRoom', { roomName: roomName, message: payload })
+
+    setMessages((prev) => [...prev, { from: currentUser, message: newMessage }])
+    setNewMessage('')
+  }, [newMessage, isChannelSecure, currentUser, socket, roomName]) 
+
+  const decryptAndSetSessionKey = useCallback(
+    (payload, senderPublicKey) => {
+      if (!ownKeys) return
+
+      // Adicione um log para ver qual chave pública está sendo usada
+      log.info(`Tentando decifrar chave de sessão com a chave pública de ${chatWithUser}`)
+
+      const receivedSessionKey = nacl.box.open(
+        decodeBase64(payload.box),
+        decodeBase64(payload.nonce),
+        senderPublicKey,
+        ownKeys.secretKey
+      )
+
+      if (receivedSessionKey) {
+        sessionKey.current = receivedSessionKey
+        setIsChannelSecure(true)
+        log.info(
+          `Chave de sessão criptografada: \n ${payload.box} \n e nonce ${payload.nonce} recebidos`
+        )
+        log.info(`Chave de sessão descriptografada: ${encodeBase64(receivedSessionKey)} \n`)
+        log.info('✅ Canal seguro estabelecido! Chave de sessão recebida e decifrada.')
+      } else {
+        log.error('!!!!!!!! FALHA AO DECIFRAR A CHAVE DE SESSÃO !!!!!!!')
+      }
+    },
+    [ownKeys, chatWithUser]
+  )
+
+  const handleBack = () => {
+    socket.emit('leave-room', {roomName: roomName})
+    navigate(-1)
+  }
 
   const value = {
     currentUser,
@@ -217,11 +216,9 @@ export function ChatProvider({children}){
     newMessage,
     setNewMessage,
     handleSendMessage,
-  };
+    handleBack,
+    partnerLeft
+  }
 
-  return (
-    <ChatContext.Provider value={value} >
-        {children}
-    </ChatContext.Provider>
-  )
+  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>
 }

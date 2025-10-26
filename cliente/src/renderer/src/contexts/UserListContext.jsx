@@ -3,7 +3,7 @@ import nacl from 'tweetnacl'
 import { encodeBase64 } from 'tweetnacl-util'
 import log from 'electron-log/renderer'
 import { SocketContext } from './SocketContext'
-
+import { useNavigate } from 'react-router-dom';
 export const UserListContext = createContext()
 
 export function UserListProvider({ children, currentUser }) {
@@ -12,6 +12,7 @@ export function UserListProvider({ children, currentUser }) {
   const [pendingRequests, setPendingRequests] = useState(new Set())
   const [incomingGroupInvites, setIncomingGroupInvites] = useState([])
   const userKeys = useRef(null)
+  const navigate = useNavigate();
   const { socket } = useContext(SocketContext)
 
   // Conexão, Registro e Desconexão
@@ -50,7 +51,7 @@ export function UserListProvider({ children, currentUser }) {
 
   // Atualizar lista de usuário e receber convites
   useEffect(() => {
-    if (!socket) return
+    if (!socket || !currentUser) return
 
     const onUpdateUserList = (users) => setOnlineUsers(users)
     const handleIncomingRequest = ({ from }) => {
@@ -67,12 +68,7 @@ export function UserListProvider({ children, currentUser }) {
         newSet.delete(from)
         return newSet
       })
-      window.api.openChatWindow({
-        currentUser,
-        chatWithUser: from,
-        initiator: true,
-        keyInfo: { publicKey: userKeys.current.publicKey, secretKey: userKeys.current.secretKey }
-      })
+      navigate(`/chat?currentUser=${currentUser}&chatWithUser=${from}&initiator=true`);
     }
     const handleRequestRejected = ({from}) => {
       setPendingRequests((prev) => {
@@ -89,9 +85,10 @@ export function UserListProvider({ children, currentUser }) {
     return () => {
       socket.off('receive-chat-request', handleIncomingRequest)
       socket.off('chat-request-accepted', handleRequestAccepted)
+      socket.off('chat-request-reject', handleRequestRejected)
       socket.off('updateUserList', onUpdateUserList)
     }
-  }, [socket])
+  }, [socket,currentUser])
 
   const sendChatRequest = (targetUserId) => {
     if (!socket || !currentUser) return
@@ -116,18 +113,13 @@ export function UserListProvider({ children, currentUser }) {
       newSet.delete(targetUserId) 
       return newSet
     })
+    navigate(`/chat?currentUser=${currentUser}&chatWithUser=${targetUserId}&initiator=false`);
 
     socket.emit('accept-chat-request', {
       from: currentUser,
       to: targetUserId
     })
 
-    window.api.openChatWindow({
-      currentUser,
-      chatWithUser: targetUserId,
-      initiator: false,
-      keyInfo: { publicKey: userKeys.current.publicKey, secretKey: userKeys.current.secretKey }
-    })
   }
 
   const declineChatRequest = (targetUserId) => {
@@ -155,7 +147,8 @@ export function UserListProvider({ children, currentUser }) {
     declineChatRequest,
     incomingRequests,
     pendingRequests,
-    incomingGroupInvites
+    incomingGroupInvites,
+    userKeys: userKeys.current
     // sendGroupInvitation,
     // acceptGroupInvite,
     // declineGroupInvite,

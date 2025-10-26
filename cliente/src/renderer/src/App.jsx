@@ -9,8 +9,7 @@ import { ChatGroupProvider } from './contexts/ChatGroupContext';
 import { ChatGroupView } from './views/ChatGroupView';
 import { SocketProvider } from './contexts/SocketContext';
 // Componente para o fluxo principal (Login -> Lista de Usuários)
-const MainFlow = () => {
-  const [currentUser, setCurrentUser] = React.useState(null);
+const MainFlow = ({ currentUser, onLogin }) => {
   const [serverStatus, setServerStatus] = useState({ 
     online: false, 
     message: 'Conectando ao servidor...' 
@@ -46,15 +45,15 @@ const MainFlow = () => {
   }
 
   if (!currentUser) {
-    return <LoginView onLogin={setCurrentUser} />;
+    return <LoginView onLogin={onLogin} />;
   }
 
   // Envolver o UserListView com o Provider
  
   return (
-    <UserListProvider currentUser={currentUser}>
+    // <UserListProvider currentUser={currentUser}>
       <UserListView/>
-    </UserListProvider>
+    // </UserListProvider>
   );
 };
 
@@ -93,13 +92,18 @@ const ChatGroupPage = () => {
 };
 
 export default function App() {
+
+  const [currentUser, setCurrentUser] = React.useState(null);
+
   return (
     <SocketProvider>
+      <UserListProvider currentUser={currentUser}>
       <Routes>
-        <Route path="/" element={<MainFlow />} />
+        <Route path="/" element={<MainFlow currentUser={currentUser} onLogin={setCurrentUser} />} />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/chatGroup" element={<ChatGroupPage />} />
       </Routes>
+      </UserListProvider>
     </SocketProvider>
   );
 }

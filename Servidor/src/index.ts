@@ -68,6 +68,7 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
+  
   socket.on('accept-chat-request', (data: { to: string }) => {
     if (!connectedUsername) return;
     const recipientSocketId = onlineUsers.get(data.to);
@@ -76,7 +77,7 @@ io.on('connection', (socket: Socket) => {
       io.to(recipientSocketId).emit('chat-request-accepted', { from: connectedUsername });
     }
   });
-
+  
   socket.on('reject-chat-request', (data: { to: string }) => {
     if (!connectedUsername) return;
     const recipientSocketId = onlineUsers.get(data.to);
@@ -85,18 +86,31 @@ io.on('connection', (socket: Socket) => {
       io.to(recipientSocketId).emit('chat-request-reject', { from: connectedUsername });
     }
   });
-
-  socket.on('privateMessage', (data: { to: string; message: any }) => {
-    if (!connectedUsername) return;
-    const recipientSocketId = onlineUsers.get(data.to);
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit('receiveMessage', { from: connectedUsername, message: data.message });
-    } else {
-      console.warn(`Usuário offline: ${data.to}`);
-    }
+  
+  socket.on('joinChatRoom', (data: { roomName: string, username: string} ) => {
+    socket.join(data.roomName);
+    console.log(`Usuário '${data.username}' (socket ${socket.id}) entrou na sala de chat: ${data.roomName}`);
   });
 
+  socket.on('messageToRoom', (data: { roomName: string; message: any }) => {
+    
+    const { roomName, message } = data;
+    console.log("Enviando Mensagem", message)
+
+    socket.to(roomName).emit('receiveMessage', { 
+      message: message 
+    });
+  });
+
+
   // --- Desconexão ---
+
+  socket.on('leave-room', (data: {roomName: string}) => {
+    socket.leave(data.roomName)
+    console.log(`${socket.id} saiu da room ${data.roomName}`)
+    socket.to(data.roomName).emit("partner-disconnected")
+  })
+
   socket.on('disconnect', () => {
     if (!connectedUsername) return;
 
