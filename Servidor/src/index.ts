@@ -98,19 +98,200 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
+  /// --- Chat Group
+
+  socket.on("create-pending-group", (data: { groupId: string; groupName: string; invitedUsers: string[] }) => {
+    if (!connectedUsername) return;
+
+    const { groupId, groupName, invitedUsers } = data;
+    socket.join(groupId);
+    console.log(data)
+    const membersStatus = new Map<string, "pending" | "accepted">();
+    for (const user of invitedUsers) {
+      membersStatus.set(user, "pending");
+    }
+    membersStatus.set(connectedUsername, "accepted");
+
+    const newGroup: PendingGroup = {
+      groupId,
+      groupName,
+      createdBy: connectedUsername,
+      allMembers: [connectedUsername, ...invitedUsers],
+      membersStatus,
+    };
+
+    pendingGroups.set(groupId, newGroup);
+
+    // Enviar convite a cada membro
+    invitedUsers.forEach((user) => {
+      const targetSocketId = onlineUsers.get(user);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("receive-group-invite", {
+          groupId,
+          groupName,
+          from: connectedUsername,
+        });
+      }
+    });
+
+    console.log(`📨 Grupo pendente '${groupName}' criado por ${connectedUsername}`);
+  });
+
+  socket.on("accept-group-invite", (data: { groupId: string; user: string }) => {
+  const { groupId, user } = data;
+
+  // 1️⃣ Primeiro, checa se o grupo ainda está pendente de criação
+  const pendingGroup = pendingGroups.get(groupId);
+  if (pendingGroup) {
+    pendingGroup.membersStatus.set(user, "accepted");
+    socket.join(groupId);
+
+    const allAccepted = Array.from(pendingGroup.membersStatus.values()).every(
+      (status) => status === "accepted"
+    );
+
+    if (allAccepted) {
+      // Move grupo para ativo
+      activeGroups.set(pendingGroup.groupId, {
+        groupId: pendingGroup.groupId,
+        groupName: pendingGroup.groupName,
+        owner: pendingGroup.createdBy,
+        members: new Set(pendingGroup.allMembers),
+      });
+
+      // Notifica todos os usuários
+      pendingGroup.allMembers.forEach((member) => {
+        const targetSocketId = onlineUsers.get(member);
+        if (targetSocketId) {
+          io.to(targetSocketId).emit("group-created", {
+            groupId: pendingGroup.groupId,
+            groupName: pendingGroup.groupName,
+            owner: pendingGroup.createdBy,
+            members: pendingGroup.allMembers,
+          });
+        }
+      });
+
+      pendingGroups.delete(groupId);
+      console.log(`✅ Grupo '${pendingGroup.groupName}' criado com todos os membros.`);
+    }
+
+    return; // sai aqui se era um grupo pendente
+  }
+
+  // 2️⃣ Caso contrário, é um grupo já existente (ativo)
+  const activeGroup = activeGroups.get(groupId);
+  if (activeGroup) {
+    activeGroup.members.add(user);
+
+    socket.join(groupId);
+
+    // Notifica o novo membro para entrar no grupo
+    const userSocketId = onlineUsers.get(user);
+    if (userSocketId) {
+      io.to(userSocketId).emit("joined-existing-group", {
+        groupId: activeGroup.groupId,
+        groupName: activeGroup.groupName,
+        owner: activeGroup.owner,
+        members: Array.from(activeGroup.members),
+      });
+    }
+
+    // Notifica os outros membros do grupo que alguém novo entrou
+    activeGroup.members.forEach((member) => {
+      const socketId = onlineUsers.get(member);
+      if (socketId && member !== user) {
+        io.to(socketId).emit("group-membership-changed", {
+          members: Array.from(activeGroup.members)
+        });
+      }
+    });
+
+    console.log(`👥 ${user} aceitou o convite e entrou no grupo '${activeGroup.groupName}'`);
+  }
+});
+
+  
+  socket.on("decline-group-invite", (data: { groupId: string; user: string }) => {
+    const { groupId, user } = data;
+    const group = pendingGroups.get(groupId);
+    if (!group) return;
+
+    io.emit("group-invite-declined", {
+      groupId,
+      groupName: group.groupName,
+      declinedBy: user,
+    });
+
+    pendingGroups.delete(groupId);
+    console.log(`❌ Grupo '${group.groupName}' cancelado — ${user} recusou.`);
+  });
+
+  // Distribuição de Chave Simetrica no Grupo
+  socket.on("distribute-new-group-key", (data: {to: string, groupId: string,keyPayload: any}) => {
+    if(!data) return;
+    const {to, groupId, keyPayload} = data;
+    const targetSocketId = onlineUsers.get(to);
+
+    io.to(targetSocketId as string).emit("receive-new-group-key", {
+          groupId,
+          keyPayload
+    });
+  })
+  
+  socket.on("admin-add-member", (data : {memberName: string, groupId: string}) => {
+    if(!data) return;
+
+    const {memberName, groupId} = data;
+    const userSocketId = onlineUsers.get(memberName);
+    const group = activeGroups.get(groupId);
+    if(!userSocketId || !group) return;
+    io.to(userSocketId).emit("receive-group-invite", {
+          groupId,
+          groupName: group.groupName,
+          from: connectedUsername,
+        });
+  })
+
+  socket.on("admin-remove-member", (data : {memberName: string, groupId: string}) => {
+    if(!data) return;
+
+    const {memberName, groupId} = data;
+    const group = activeGroups.get(groupId);
+
+    if(!group) {console.log("Group nao existe"); return};
+
+    group.members.delete(memberName);
+    activeGroups.set(groupId, group);
+
+    console.log(`Membro ${memberName} removido do grupo ${groupId}`);
+
+    [...group.members, memberName].forEach((member) => {
+      const socketId = onlineUsers.get(member);
+      if (socketId) {
+        io.to(socketId).emit("group-membership-changed", {
+          members: Array.from(group.members)
+        });
+      }
+    });
+  })
+
+
   socket.on("joinChatRoom", (data: { roomName: string; username: string }) => {
+    if(socket.rooms.has(data.roomName)) return;
     socket.join(data.roomName);
     console.log(
       `Usuário '${data.username}' (socket ${socket.id}) entrou na sala de chat: ${data.roomName}`
     );
   });
 
-  socket.on("messageToRoom", (data: { roomName: string; message: any }) => {
-    const { roomName, message } = data;
-    console.log("Enviando Mensagem", message);
+  socket.on("messageToRoom", (data: { roomName: string; message: any, from: string }) => {
+    const { roomName, message, from } = data;
+    console.log(from,"enviando Mensagem", message);
 
     socket.to(roomName).emit("receiveMessage", {
       message: message,
+      from
     });
   });
 
@@ -121,6 +302,33 @@ io.on("connection", (socket: Socket) => {
     console.log(`${socket.id} saiu da room ${data.roomName}`);
     socket.to(data.roomName).emit("partner-disconnected");
   });
+
+  socket.on('admin-leave', (data: { groupId: string }) => {
+    socket.leave(data.groupId);
+    console.log(`${socket.id} saiu do grupo ${data.groupId}`);
+    socket.to(data.groupId).emit('group-terminated');
+  })
+
+  socket.on('member-leave', (data: { groupId: string , memberName: string}) => {
+    const {memberName, groupId} = data;
+    const group = activeGroups.get(groupId);
+
+    if(!group) {console.log("Group nao existe"); return};
+
+    group.members.delete(memberName);
+    activeGroups.set(groupId, group);
+
+    console.log(`Membro ${memberName} saiu do grupo ${groupId}`);
+
+    [...group.members, memberName].forEach((member) => {
+      const socketId = onlineUsers.get(member);
+      if (socketId) {
+        io.to(socketId).emit("group-membership-changed", {
+          members: Array.from(group.members)
+        });
+      }
+    });
+  })
 
   socket.on("disconnecting", () => {
     console.log(socket.rooms);

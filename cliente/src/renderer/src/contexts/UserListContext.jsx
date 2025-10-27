@@ -4,6 +4,8 @@ import { encodeBase64 } from 'tweetnacl-util'
 import log from 'electron-log/renderer'
 import { SocketContext } from './SocketContext'
 import { useNavigate } from 'react-router-dom';
+import { v4 as uuidv4 } from 'uuid';
+
 export const UserListContext = createContext()
 
 export function UserListProvider({ children, currentUser }) {
@@ -62,6 +64,10 @@ export function UserListProvider({ children, currentUser }) {
       })
       log.info(`Nova solicitação de chat de ${from}`)
     }
+    const handleIncomingGroupRequest = (dataGroup) => {
+      setIncomingGroupInvites((prev) => [...prev, dataGroup]);
+      log.info(`Nova solicitação de chat grupo de ${dataGroup.from}`)
+    }
     const handleRequestAccepted = ({ from }) => {
       setPendingRequests((prev) => {
         const newSet = new Set(prev)
@@ -77,15 +83,26 @@ export function UserListProvider({ children, currentUser }) {
         return newSet
       })
     }
+    const handleRequestCreateGroup = (data) => {
+      log.info(`✅ Entrando no grupo: ${data.groupName}`);
+      
+      navigate(
+        `/chatGroup?groupId=${data.groupId}&groupName=${encodeURIComponent(data.groupName)}&owner=${data.owner}&members=${data.members.join(',')}&currentUser=${currentUser}`
+      );
+    }
 
     socket.on('receive-chat-request', handleIncomingRequest)
+    socket.on("receive-group-invite", handleIncomingGroupRequest)
     socket.on('chat-request-accepted', handleRequestAccepted)
     socket.on('chat-request-reject', handleRequestRejected)
+    socket.on("group-created",handleRequestCreateGroup)
+    socket.on("joined-existing-group", handleRequestCreateGroup)
     socket.on('updateUserList', onUpdateUserList)
     return () => {
       socket.off('receive-chat-request', handleIncomingRequest)
       socket.off('chat-request-accepted', handleRequestAccepted)
       socket.off('chat-request-reject', handleRequestRejected)
+      socket.off("group-created",handleRequestCreateGroup)
       socket.off('updateUserList', onUpdateUserList)
     }
   }, [socket,currentUser])
@@ -137,6 +154,30 @@ export function UserListProvider({ children, currentUser }) {
     })
   }
 
+  const sendGroupInvitation = (groupName,selectedUsers) => {
+      socket.emit("create-pending-group", {
+      groupId: uuidv4(),
+      groupName,
+      invitedUsers: selectedUsers,
+    });
+  }
+
+  const acceptGroupInvite = (groupId) => {
+  if (!socket || !currentUser) return;
+  socket.emit("accept-group-invite", { groupId, user: currentUser });
+    
+    // Remove convite aceito da lista
+    setIncomingGroupInvites((prev) => prev.filter(invite => invite.groupId !== groupId));
+  };
+
+  const declineGroupInvite = (groupId) => {
+  if (!socket || !currentUser) return;
+  socket.emit("decline-group-invite", { groupId, user: currentUser });
+
+  // Remove convite recusado da lista
+    setIncomingGroupInvites((prev) => prev.filter(invite => invite.groupId !== groupId));
+  };
+
   const otherUsers = onlineUsers.filter((u) => u !== currentUser)
 
   const value = {
@@ -148,10 +189,10 @@ export function UserListProvider({ children, currentUser }) {
     incomingRequests,
     pendingRequests,
     incomingGroupInvites,
-    userKeys: userKeys.current
-    // sendGroupInvitation,
-    // acceptGroupInvite,
-    // declineGroupInvite,
+    userKeys: userKeys.current,
+    sendGroupInvitation,
+    acceptGroupInvite,
+    declineGroupInvite,
   }
 
   return <UserListContext.Provider value={value}>{children}</UserListContext.Provider>

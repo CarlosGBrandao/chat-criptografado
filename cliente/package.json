@@ -27,7 +27,8 @@
     "socket.io-client": "^4.8.1",
     "tailwindcss": "^4.1.13",
     "tweetnacl": "^1.0.3",
-    "tweetnacl-util": "^0.15.1"
+    "tweetnacl-util": "^0.15.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.0.0",
