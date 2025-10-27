@@ -9,7 +9,7 @@ type PendingGroup = {
   groupName: string;
   createdBy: string;
   allMembers: string[];
-  membersStatus: Map<string, "pending" | "accepted">;
+  membersStatus: Map<string, "pending" | "accepted" | "declined">;
 };
 
 type ActiveGroup = {
@@ -106,7 +106,7 @@ io.on("connection", (socket: Socket) => {
     const { groupId, groupName, invitedUsers } = data;
     socket.join(groupId);
     console.log(data)
-    const membersStatus = new Map<string, "pending" | "accepted">();
+    const membersStatus = new Map<string, "pending" | "accepted" | "declined">();
     for (const user of invitedUsers) {
       membersStatus.set(user, "pending");
     }
@@ -140,50 +140,72 @@ io.on("connection", (socket: Socket) => {
   socket.on("accept-group-invite", (data: { groupId: string; user: string }) => {
   const { groupId, user } = data;
 
-  // 1️⃣ Primeiro, checa se o grupo ainda está pendente de criação
+  // 1️⃣ Lógica para GRUPO PENDENTE (primeira criação)
   const pendingGroup = pendingGroups.get(groupId);
   if (pendingGroup) {
     pendingGroup.membersStatus.set(user, "accepted");
     socket.join(groupId);
+    console.log(`👍 ${user} aceitou o convite para o grupo pendente '${pendingGroup.groupName}'.`);
 
-    const allAccepted = Array.from(pendingGroup.membersStatus.values()).every(
-      (status) => status === "accepted"
+    // Verifica se todos os convidados já responderam (aceitaram ou recusaram)
+    const allResolved = Array.from(pendingGroup.membersStatus.values()).every(
+      (status) => status === "accepted" || status === "declined"
     );
 
-    if (allAccepted) {
-      // Move grupo para ativo
-      activeGroups.set(pendingGroup.groupId, {
-        groupId: pendingGroup.groupId,
-        groupName: pendingGroup.groupName,
-        owner: pendingGroup.createdBy,
-        members: new Set(pendingGroup.allMembers),
-      });
+    if (allResolved) {
+      // Se todos responderam, vamos criar o grupo com quem aceitou
+      const acceptedMembers = Array.from(pendingGroup.membersStatus.entries())
+        .filter(([, status]) => status === "accepted")
+        .map(([username]) => username);
 
-      // Notifica todos os usuários
-      pendingGroup.allMembers.forEach((member) => {
-        const targetSocketId = onlineUsers.get(member);
-        if (targetSocketId) {
-          io.to(targetSocketId).emit("group-created", {
+      if (acceptedMembers.length > 1) {
+        // Crie o grupo ativo
+        activeGroups.set(pendingGroup.groupId, {
+          groupId: pendingGroup.groupId,
+          groupName: pendingGroup.groupName,
+          owner: pendingGroup.createdBy,
+          members: new Set(acceptedMembers),
+        });
+
+        // Notifica todos que aceitaram que o grupo foi criado
+        acceptedMembers.forEach((member) => {
+          const targetSocketId = onlineUsers.get(member);
+          if (targetSocketId) {
+            io.to(targetSocketId).emit("group-created", {
+              groupId: pendingGroup.groupId,
+              groupName: pendingGroup.groupName,
+              owner: pendingGroup.createdBy,
+              members: acceptedMembers,
+            });
+          }
+        });
+        console.log(`✅ Grupo '${pendingGroup.groupName}' criado com ${acceptedMembers.length} membros.`);
+      
+      } else {
+        // Falha na criação do grupo (membros insuficientes)
+        console.log(`❌ Grupo '${pendingGroup.groupName}' falhou, membros insuficientes.`);
+        const creatorSocketId = onlineUsers.get(pendingGroup.createdBy);
+        if (creatorSocketId) {
+          // Notifica o criador que o grupo falhou
+          io.to(creatorSocketId).emit("group-creation-failed", {
             groupId: pendingGroup.groupId,
             groupName: pendingGroup.groupName,
-            owner: pendingGroup.createdBy,
-            members: pendingGroup.allMembers,
+            reason: "Membros insuficientes aceitaram."
           });
         }
-      });
-
+      }
+      
+      // Limpa o grupo da lista de pendentes
       pendingGroups.delete(groupId);
-      console.log(`✅ Grupo '${pendingGroup.groupName}' criado com todos os membros.`);
     }
-
-    return; // sai aqui se era um grupo pendente
+    // Se nem todos responderam, não fazemos nada. Apenas esperamos.
+    return;
   }
 
-  // 2️⃣ Caso contrário, é um grupo já existente (ativo)
+  // 2️⃣ Lógica para GRUPO ATIVO (adicionando novo membro por um admin)
   const activeGroup = activeGroups.get(groupId);
   if (activeGroup) {
     activeGroup.members.add(user);
-
     socket.join(groupId);
 
     // Notifica o novo membro para entrar no grupo
@@ -207,24 +229,84 @@ io.on("connection", (socket: Socket) => {
       }
     });
 
-    console.log(`👥 ${user} aceitou o convite e entrou no grupo '${activeGroup.groupName}'`);
+    console.log(`👥 ${user} aceitou o convite e entrou no grupo ATIVO '${activeGroup.groupName}'`);
   }
 });
 
   
   socket.on("decline-group-invite", (data: { groupId: string; user: string }) => {
     const { groupId, user } = data;
-    const group = pendingGroups.get(groupId);
-    if (!group) return;
+    const pendingGroup = pendingGroups.get(groupId);
 
-    io.emit("group-invite-declined", {
-      groupId,
-      groupName: group.groupName,
-      declinedBy: user,
-    });
+    // 1. Verifica se o grupo pendente ainda existe
+    if (!pendingGroup) {
+      console.log(`Tentativa de recusar convite para grupo ${groupId} que não está pendente.`);
+      return;
+    }
 
-    pendingGroups.delete(groupId);
-    console.log(`❌ Grupo '${group.groupName}' cancelado — ${user} recusou.`);
+    // 2. Atualiza o status do usuário para "recusado"
+    pendingGroup.membersStatus.set(user, "declined");
+    console.log(`❌ ${user} recusou o convite para o grupo '${pendingGroup.groupName}'.`);
+
+    // 3. Notifica APENAS o criador sobre a recusa específica
+    const creatorSocketId = onlineUsers.get(pendingGroup.createdBy);
+    if (creatorSocketId) {
+      io.to(creatorSocketId).emit("group-invite-rejected", {
+        groupId: groupId,
+        rejectedUserId: user 
+      });
+    }
+
+    // 4. Verifica se todos os convidados já responderam (aceitaram ou recusaram)
+    const allResolved = Array.from(pendingGroup.membersStatus.values()).every(
+      (status) => status === "accepted" || status === "declined"
+    );
+
+    if (allResolved) {
+      // Se todos responderam, vamos criar o grupo com quem aceitou
+      const acceptedMembers = Array.from(pendingGroup.membersStatus.entries())
+        .filter(([, status]) => status === "accepted")
+        .map(([username]) => username);
+
+      if (acceptedMembers.length > 1) {
+        // Crie o grupo ativo se houver pelo menos 2 pessoas (incluindo o criador)
+        activeGroups.set(pendingGroup.groupId, {
+          groupId: pendingGroup.groupId,
+          groupName: pendingGroup.groupName,
+          owner: pendingGroup.createdBy,
+          members: new Set(acceptedMembers),
+        });
+
+        // Notifica todos que aceitaram que o grupo foi criado
+        acceptedMembers.forEach((member) => {
+          const targetSocketId = onlineUsers.get(member);
+          if (targetSocketId) {
+            io.to(targetSocketId).emit("group-created", {
+              groupId: pendingGroup.groupId,
+              groupName: pendingGroup.groupName,
+              owner: pendingGroup.createdBy,
+              members: acceptedMembers,
+            });
+          }
+        });
+        console.log(`✅ Grupo '${pendingGroup.groupName}' criado com ${acceptedMembers.length} membros.`);
+      
+      } else {
+        // Falha na criação do grupo (membros insuficientes)
+        console.log(`❌ Grupo '${pendingGroup.groupName}' falhou, membros insuficientes.`);
+        if (creatorSocketId) {
+          // Notifica o criador que o grupo falhou
+          io.to(creatorSocketId).emit("group-creation-failed", {
+            groupId: pendingGroup.groupId,
+            groupName: pendingGroup.groupName,
+            reason: "Membros insuficientes aceitaram."
+          });
+        }
+      }
+      
+      // 5. Limpa o grupo da lista de pendentes
+      pendingGroups.delete(groupId);
+    }
   });
 
   // Distribuição de Chave Simetrica no Grupo

@@ -13,6 +13,7 @@ export function UserListProvider({ children, currentUser }) {
   const [incomingRequests, setIncomingRequests] = useState(new Set())
   const [pendingRequests, setPendingRequests] = useState(new Set())
   const [incomingGroupInvites, setIncomingGroupInvites] = useState([])
+  const [pendingSentGroupInvites, setPendingSentGroupInvites] = useState([])
   const userKeys = useRef(null)
   const navigate = useNavigate();
   const { socket } = useContext(SocketContext)
@@ -85,11 +86,49 @@ export function UserListProvider({ children, currentUser }) {
     }
     const handleRequestCreateGroup = (data) => {
       log.info(`✅ Entrando no grupo: ${data.groupName}`);
+
+      setPendingSentGroupInvites((prev) => 
+        prev.filter(group => group.groupId !== data.groupId)
+      );
       
       navigate(
         `/chatGroup?groupId=${data.groupId}&groupName=${encodeURIComponent(data.groupName)}&owner=${data.owner}&members=${data.members.join(',')}&currentUser=${currentUser}`
       );
     }
+
+    const handleGroupInviteRejected = ({ groupId, rejectedUserId }) => {
+      log.info(`Usuário ${rejectedUserId} recusou o convite para o grupo ${groupId}.`);
+      
+      setPendingSentGroupInvites(prevInvites => 
+        prevInvites.map(group => {
+          // Encontra o grupo correspondente
+          if (group.groupId === groupId) {
+            // Remove o usuário que recusou da lista de membros pendentes
+            const updatedPendingMembers = group.pendingMembers.filter(
+              memberId => memberId !== rejectedUserId
+            );
+            
+            // Retorna o grupo com a lista de pendentes atualizada
+            return {
+              ...group,
+              pendingMembers: updatedPendingMembers
+            };
+          }
+          // Retorna os outros grupos pendentes sem alteração
+          return group;
+        })
+        // IMPORTANTE: Filtra (remove) qualquer grupo que não tenha mais membros pendentes.
+        // Isso resolve o estado "ocupado" se o último membro recusar.
+        .filter(group => group.pendingMembers.length > 0)
+      );
+    };
+
+    const handleGroupCreationFailed = ({ groupId }) => {
+      log.warn(`Criação do grupo ${groupId} falhou.`);
+      setPendingSentGroupInvites((prev) => 
+        prev.filter(group => group.groupId !== groupId)
+      );
+    };
 
     socket.on('receive-chat-request', handleIncomingRequest)
     socket.on("receive-group-invite", handleIncomingGroupRequest)
@@ -98,12 +137,18 @@ export function UserListProvider({ children, currentUser }) {
     socket.on("group-created",handleRequestCreateGroup)
     socket.on("joined-existing-group", handleRequestCreateGroup)
     socket.on('updateUserList', onUpdateUserList)
+    socket.on("group-invite-rejected", handleGroupInviteRejected)
+    socket.on("group-creation-failed", handleGroupCreationFailed) 
     return () => {
       socket.off('receive-chat-request', handleIncomingRequest)
       socket.off('chat-request-accepted', handleRequestAccepted)
       socket.off('chat-request-reject', handleRequestRejected)
       socket.off("group-created",handleRequestCreateGroup)
       socket.off('updateUserList', onUpdateUserList)
+      socket.off("group-invite-rejected", handleGroupInviteRejected)
+      socket.off("group-creation-failed", handleGroupCreationFailed) 
+
+
     }
   }, [socket,currentUser])
 
@@ -112,7 +157,7 @@ export function UserListProvider({ children, currentUser }) {
 
     setPendingRequests((prev) => {
       const newSet = new Set(prev) 
-      newSet.delete(targetUserId) 
+      newSet.add(targetUserId) 
       return newSet
     })
 
@@ -154,9 +199,18 @@ export function UserListProvider({ children, currentUser }) {
     })
   }
 
-  const sendGroupInvitation = (groupName,selectedUsers) => {
-      socket.emit("create-pending-group", {
-      groupId: uuidv4(),
+  const sendGroupInvitation = (groupName, selectedUsers) => {
+    const newGroupId = uuidv4();
+    const newPendingGroup = {
+      groupId: newGroupId,
+      groupName: groupName,
+      pendingMembers: selectedUsers 
+    };
+
+    setPendingSentGroupInvites((prev) => [...prev, newPendingGroup]);
+
+    socket.emit("create-pending-group", {
+      groupId: newGroupId,
       groupName,
       invitedUsers: selectedUsers,
     });
@@ -190,6 +244,7 @@ export function UserListProvider({ children, currentUser }) {
     pendingRequests,
     incomingGroupInvites,
     userKeys: userKeys.current,
+    pendingSentGroupInvites,
     sendGroupInvitation,
     acceptGroupInvite,
     declineGroupInvite,
