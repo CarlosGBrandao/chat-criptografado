@@ -50,7 +50,7 @@ io.on("connection", (socket: Socket) => {
   socket.on("registerPublicKey", (data: { publicKey: string }) => {
     if (!connectedUsername || publicKeys.has(connectedUsername)) return;
     publicKeys.set(connectedUsername, data.publicKey);
-    console.log(`Chave pública registrada para '${connectedUsername}'`);
+    console.log(`Chave pública registrada para '${connectedUsername}: ${data.publicKey}'`);
   });
 
   socket.on("getPublicKey", (data: { username: string }) => {
