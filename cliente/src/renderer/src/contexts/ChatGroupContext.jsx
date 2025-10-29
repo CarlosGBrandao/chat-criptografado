@@ -45,7 +45,7 @@ export function ChatGroupProvider({ children }) {
         socket.emit('getPublicKey', { username: member })
       }
     })
-  }, [socket, members, currentUser, groupId, ownKeys])
+  }, [socket, members])
 
   // Listener para receber as chaves públicas e atualizar membros
   useEffect(() => {
@@ -73,7 +73,7 @@ export function ChatGroupProvider({ children }) {
         socket.off('group-terminated',handleAdminLeave)
 
     }
-  }, [socket])
+  }, [socket, members])
 
   // Dono Criptografa e Distribui
   useEffect(() => {
@@ -185,7 +185,10 @@ export function ChatGroupProvider({ children }) {
           setIsChannelSecure(true)
           setPendingKeyPayload(null)
           log.info(
-            `[MEMBRO] Nova chave de sessão decifrada com sucesso para o grupo ${groupName}. Canal seguro!`
+            `[MEMBRO] Nova chave de sessão decifrada com sucesso para o grupo ${groupName}.
+            Session Key = ${encodeBase64(receivedKey)}
+
+            Canal seguro!`
           )
         } else {
           log.error(`[MEMBRO] FALHA ao decifrar a chave de sessão recebida de '${owner}'.`)
@@ -277,7 +280,11 @@ export function ChatGroupProvider({ children }) {
 
     if (ownerPublicKey) {
       log.info(`[MEMBRO] Processando chave de sessão PENDENTE de '${owner}'.`)
-
+      log.info(
+          `[MEMBRO] Chave de sessao criptografada de '${owner}' recebida:\n` +
+            `  Box: ${pendingKeyPayload.box}\n` +
+            `  Nonce: ${pendingKeyPayload.nonce}`
+        )
       const receivedKey = nacl.box.open(
         decodeBase64(pendingKeyPayload.box),
         decodeBase64(pendingKeyPayload.nonce),
@@ -289,14 +296,17 @@ export function ChatGroupProvider({ children }) {
         groupSessionKey.current = receivedKey
         setIsChannelSecure(true)
         setPendingKeyPayload(null) // Sucesso, limpa o payload
-        log.info(`[MEMBRO] Chave de sessão PENDENTE decifrada com sucesso. Canal seguro!`)
+        log.info(`[MEMBRO] Chave de sessão PENDENTE decifrada com sucesso.
+          Session Key = ${encodeBase64(receivedKey)}
+          Canal Seguro.
+          `)
       } else {
         log.error(`[MEMBRO] FALHA ao decifrar a chave de sessão PENDENTE de '${owner}'.`)
         // Limpa para não tentar de novo com uma chave ruim
         setPendingKeyPayload(null)
       }
     }
-  }, [pendingKeyPayload, membersPublicKeys, isChannelSecure, currentUser, owner, ownKeys])
+  }, [pendingKeyPayload, membersPublicKeys, isChannelSecure, currentUser, owner, ownKeys,members])
 
   // 5. Função para enviar mensagem
   const handleSendMessage = useCallback(() => {

@@ -24,11 +24,9 @@ export function UserListProvider({ children, currentUser }) {
 
     if (!userKeys.current) {
       userKeys.current = nacl.box.keyPair()
-      log.info(`Criando Par de  Chaves de ${currentUser} 
-
-    -Public key: ${encodeBase64(userKeys.current.publicKey)} 
-    -Secret Key: ${encodeBase64(userKeys.current.secretKey)}
-    `)
+      log.info(`🔐 Par de chaves gerado para ${currentUser}`)
+      log.info(`→ Public Key: ${encodeBase64(userKeys.current.publicKey)}`)
+      log.info(`→ Secret Key: ${encodeBase64(userKeys.current.secretKey)}`)
     }
 
     const registerUser = () => {
@@ -36,19 +34,13 @@ export function UserListProvider({ children, currentUser }) {
       socket.emit('registerPublicKey', { publicKey: encodeBase64(userKeys.current.publicKey) })
     }
 
-    const handleDisconnect = () => {
-      log.info(`${currentUser} desconectou`)
-    }
-
     if (socket.connected) {
       registerUser()
     }
 
     socket.on('connect', registerUser)
-    socket.on('disconnect', handleDisconnect)
     return () => {
       socket.off('connect', registerUser)
-      socket.off('disconnect', handleDisconnect)
     }
   }, [currentUser, socket])
 
@@ -63,11 +55,9 @@ export function UserListProvider({ children, currentUser }) {
         newSet.add(from)
         return newSet
       })
-      log.info(`Nova solicitação de chat de ${from}`)
     }
     const handleIncomingGroupRequest = (dataGroup) => {
       setIncomingGroupInvites((prev) => [...prev, dataGroup]);
-      log.info(`Nova solicitação de chat grupo de ${dataGroup.from}`)
     }
     const handleRequestAccepted = ({ from }) => {
       setPendingRequests((prev) => {
@@ -85,8 +75,6 @@ export function UserListProvider({ children, currentUser }) {
       })
     }
     const handleRequestCreateGroup = (data) => {
-      log.info(`✅ Entrando no grupo: ${data.groupName}`);
-
       setPendingSentGroupInvites((prev) => 
         prev.filter(group => group.groupId !== data.groupId)
       );
@@ -97,34 +85,25 @@ export function UserListProvider({ children, currentUser }) {
     }
 
     const handleGroupInviteRejected = ({ groupId, rejectedUserId }) => {
-      log.info(`Usuário ${rejectedUserId} recusou o convite para o grupo ${groupId}.`);
-      
       setPendingSentGroupInvites(prevInvites => 
         prevInvites.map(group => {
-          // Encontra o grupo correspondente
           if (group.groupId === groupId) {
-            // Remove o usuário que recusou da lista de membros pendentes
             const updatedPendingMembers = group.pendingMembers.filter(
               memberId => memberId !== rejectedUserId
             );
-            
-            // Retorna o grupo com a lista de pendentes atualizada
             return {
               ...group,
               pendingMembers: updatedPendingMembers
             };
           }
-          // Retorna os outros grupos pendentes sem alteração
           return group;
         })
-        // IMPORTANTE: Filtra (remove) qualquer grupo que não tenha mais membros pendentes.
-        // Isso resolve o estado "ocupado" se o último membro recusar.
+        
         .filter(group => group.pendingMembers.length > 0)
       );
     };
 
     const handleGroupCreationFailed = ({ groupId }) => {
-      log.warn(`Criação do grupo ${groupId} falhou.`);
       setPendingSentGroupInvites((prev) => 
         prev.filter(group => group.groupId !== groupId)
       );
@@ -147,8 +126,6 @@ export function UserListProvider({ children, currentUser }) {
       socket.off('updateUserList', onUpdateUserList)
       socket.off("group-invite-rejected", handleGroupInviteRejected)
       socket.off("group-creation-failed", handleGroupCreationFailed) 
-
-
     }
   }, [socket,currentUser])
 

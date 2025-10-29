@@ -35,7 +35,6 @@ export function ChatProvider({ children }) {
   }, [currentUser, chatWithUser])
 
   useEffect(() => {
-    log.info(`(ChatProvider) Iniciando chat com ${chatWithUser}. Resetando estado...`)
     setMessages([])
     setRecipientPublicKey(null)
     setIsChannelSecure(false)
@@ -49,8 +48,6 @@ export function ChatProvider({ children }) {
     if (!ownKeys || !socket || !roomName || !chatWithUser || !currentUser) {
       return
     }
-
-    log.info(`${currentUser} Entrando na sala ${roomName} e buscando chave de ${chatWithUser}.`)
     socket.emit('joinChatRoom', { roomName: roomName, username: currentUser })
     socket.emit('getPublicKey', { username: chatWithUser })
   }, [socket])
@@ -72,7 +69,6 @@ export function ChatProvider({ children }) {
         if (recipientPublicKey) {
           decryptAndSetSessionKey(payload, recipientPublicKey)
         } else {
-          console.warn('Chave de sessão recebida ANTES da chave pública. Guardando para depois.')
           setPendingSessionKey(payload)
         }
       }
@@ -99,7 +95,6 @@ export function ChatProvider({ children }) {
     }
 
     const handlePartnerDisconnect = () => {     
-      log.warn(`${chatWithUser} saiu da conversa.`);
       setPartnerLeft(true);   
     };
 
@@ -117,7 +112,6 @@ export function ChatProvider({ children }) {
 
   useEffect(() => {
     if (pendingSessionKey && recipientPublicKey) {
-      console.log('Processando a chave de sessão que estava guardada...')
       decryptAndSetSessionKey(pendingSessionKey, recipientPublicKey)
       setPendingSessionKey(null)
     }
@@ -180,7 +174,6 @@ export function ChatProvider({ children }) {
     (payload, senderPublicKey) => {
       if (!ownKeys) return
 
-      // Adicione um log para ver qual chave pública está sendo usada
       log.info(`Tentando decifrar chave de sessão com a chave pública de ${chatWithUser}`)
 
       const receivedSessionKey = nacl.box.open(
