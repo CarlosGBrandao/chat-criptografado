@@ -77,7 +77,7 @@ export function ChatGroupProvider({ children }) {
 
   // Dono Criptografa e Distribui
   useEffect(() => {
-    if (currentUser !== owner || !ownKeys || !socket || !members || isGroupTerminated) {
+    if (currentUser !== owner || !ownKeys || !socket || !members || isGroupTerminated || isChannelSecure) {
       return
     }
 
