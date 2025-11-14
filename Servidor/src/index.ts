@@ -314,6 +314,7 @@ io.on("connection", (socket: Socket) => {
     if(!data) return;
     const {to, groupId, keyPayload} = data;
     const targetSocketId = onlineUsers.get(to);
+    console.log("Dono do grupo","distribuindo session key", keyPayload);
 
     io.to(targetSocketId as string).emit("receive-new-group-key", {
           groupId,

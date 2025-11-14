@@ -147,15 +147,8 @@ export function ChatGroupProvider({ children }) {
       }
     })
   }, [
-    socket,
     membersPublicKeys,
     members,
-    ownKeys,
-    currentUser,
-    owner,
-    groupId,
-    groupName,
-    isGroupTerminated
   ])
 
   //  Lógica para receber mensagens, chaves e atualizações de membros
