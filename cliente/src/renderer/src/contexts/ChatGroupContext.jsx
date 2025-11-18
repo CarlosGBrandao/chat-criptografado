@@ -8,6 +8,8 @@ import { UserListContext } from './UserListContext'
 import { useNavigate } from 'react-router-dom'
 export const ChatGroupContext = createContext()
 
+const toHex = (u8) => Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+
 export function ChatGroupProvider({ children }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -123,11 +125,22 @@ export function ChatGroupProvider({ children }) {
           const nonce = nacl.randomBytes(nacl.box.nonceLength)
           const encryptedKey = nacl.box(newKey, nonce, recipientPublicKey, ownKeys.secretKey)
 
+          const polyTag = encryptedKey.slice(0, nacl.box.overheadLength) // Primeiros 16 bytes
+          const keyCiphertext = encryptedKey.slice(nacl.box.overheadLength) // O Resto
+
           log.info(
             `[DONO] Criptografando chave para '${member}':\n` +
               `  Box: ${encodeBase64(encryptedKey)}\n` +
               `  Nonce: ${encodeBase64(nonce)}`
           )
+
+          log.info(`====== [DISTRIBUINDO CHAVE PARA: ${member}] ======`)
+log.info(`1. Payload (Box): ${toHex(encryptedKey)}`)
+log.info(`--- DECOMPOSICAO ---`)
+log.info(`   A. Poly1305 (Lacre): [ ${toHex(polyTag)} ]`)
+log.info(`   B. Chave Cifrada:    [ ${toHex(keyCiphertext)} ]`)
+log.info(`===================================================`)
+// ----------------------------------------------------
 
           const keyPayload = {
             box: encodeBase64(encryptedKey),
@@ -168,17 +181,28 @@ export function ChatGroupProvider({ children }) {
 
       const ownerPublicKey = membersPublicKeys.get(owner)
       if (ownerPublicKey) {
+
+        const boxBytes = decodeBase64(data.keyPayload.box) // Decodifica aqui para analisar
+        const polyTag = boxBytes.slice(0, nacl.box.overheadLength)
+        const keyCiphertext = boxBytes.slice(nacl.box.overheadLength)
+
         log.info(
           `[MEMBRO] Chave de sessao criptografada de '${owner}' recebida:\n` +
             `  Box: ${data.keyPayload.box}\n` +
             `  Nonce: ${data.keyPayload.nonce}`
         )
 
+        log.info(`====== [RECEBENDO CHAVE DO DONO] ======`)
+  log.info(`1. Payload Recebido: ${toHex(boxBytes)}`)
+  log.info(`--- ANALISE DE INTEGRIDADE ---`)
+  log.info(`   A. Poly1305 Esperado: [ ${toHex(polyTag)} ]`)
+  log.info(`   B. Dados para Decifrar: [ ${toHex(keyCiphertext)} ]`)
+
         const receivedKey = nacl.box.open(
-          decodeBase64(data.keyPayload.box),
-          decodeBase64(data.keyPayload.nonce),
-          ownerPublicKey,
-          ownKeys.secretKey
+        boxBytes, // Usa a variável que decodificamos acima
+        decodeBase64(data.keyPayload.nonce),
+        ownerPublicKey,
+         ownKeys.secretKey
         )
         if (receivedKey) {
           groupSessionKey.current = receivedKey
@@ -204,12 +228,24 @@ export function ChatGroupProvider({ children }) {
       log.info(data)
       const key = groupSessionKey.current
       if (key && data.message.ciphertext) {
+
+        const boxBytes = decodeBase64(data.message.ciphertext)
+        const polyTag = boxBytes.slice(0, nacl.secretbox.overheadLength)
+       const msgCiphertext = boxBytes.slice(nacl.secretbox.overheadLength)
+
         log.info(`[MSG] Recebendo mensagem cifrada de '${data.from}' no grupo '${groupName}'.`)
         const decryptedBytes = nacl.secretbox.open(
-          decodeBase64(data.message.ciphertext),
-          decodeBase64(data.message.nonce),
-          key
+          boxBytes, // Usa boxBytes já decodificado
+    decodeBase64(data.message.nonce),
+    key
         )
+
+        log.info(`====== [MENSAGEM RECEBIDA DE ${data.from}] ======`)
+         log.info(`Pacote Raw: ${toHex(boxBytes)}`)
+        log.info(`   A. Poly1305 Tag: [ ${toHex(polyTag)} ]`)
+         log.info(`   B. Texto Cifrado: [ ${toHex(msgCiphertext)} ]`)
+
+
         if (decryptedBytes) {
           log.info(`[MSG] Mensagem de '${data.from}' decifrada com sucesso.`)
           setMessages((prev) => [
@@ -278,11 +314,13 @@ export function ChatGroupProvider({ children }) {
     if (ownerPublicKey) {
       log.info(`[MEMBRO] Processando chave de sessão PENDENTE de '${owner}'.`)
 
+      const boxBytes = decodeBase64(pendingKeyPayload.box)
+
       const receivedKey = nacl.box.open(
-        decodeBase64(pendingKeyPayload.box),
-        decodeBase64(pendingKeyPayload.nonce),
-        ownerPublicKey,
-        ownKeys.secretKey
+       boxBytes,
+    decodeBase64(pendingKeyPayload.nonce),
+    ownerPublicKey,
+    ownKeys.secretKey
       )
 
       if (receivedKey) {
@@ -314,6 +352,16 @@ export function ChatGroupProvider({ children }) {
     const messageUint8 = new TextEncoder().encode(newMessage)
 
     const encryptedMessage = nacl.secretbox(messageUint8, nonce, key)
+
+    const polyTag = encryptedMessage.slice(0, nacl.secretbox.overheadLength)
+    const msgCiphertext = encryptedMessage.slice(nacl.secretbox.overheadLength)
+
+    log.info(`====== [ENVIANDO PARA O GRUPO] ======`)
+log.info(`Mensagem: "${newMessage}"`)
+log.info(`Pacote Completo: ${toHex(encryptedMessage)}`)
+log.info(`   A. Poly1305 (Gerado): [ ${toHex(polyTag)} ]`)
+log.info(`   B. Conteudo (Cifrado): [ ${toHex(msgCiphertext)} ]`)
+log.info(`=====================================`)
 
     const payload = {
       ciphertext: encodeBase64(encryptedMessage),

@@ -8,6 +8,8 @@ import { UserListContext } from './UserListContext' // <<< 1. IMPORTAR O CONTEXT
 
 export const ChatContext = createContext()
 
+const toHex = (u8) => Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+
 export function ChatProvider({ children }) {
   const navigate  = useNavigate();
   const [searchParams] = useSearchParams()
@@ -83,13 +85,30 @@ export function ChatProvider({ children }) {
         payload.nonce &&
         sessionKey.current
       ) {
+
+        const boxBytes = decodeBase64(payload.ciphertext);
+    const nonceBytes = decodeBase64(payload.nonce);
+
+   
+    const polyTag = boxBytes.slice(0, nacl.secretbox.overheadLength); // 16 bytes
+    const messageCiphertext = boxBytes.slice(nacl.secretbox.overheadLength); // O resto
+
+    log.info("====== [MENSAGEM RECEBIDA] ======");
+    log.info(`1. Pacote Completo: ${toHex(boxBytes)}`);
+    log.info("--- DESMEMBRANDO ---");
+    log.info(`   A. Poly1305 (Assinatura): [ ${toHex(polyTag)} ]`);
+    log.info(`   B. Conteudo (Cifrado):    [ ${toHex(messageCiphertext)} ]`);
+    log.info("========================================================");
+
+
         const decryptedBytes = nacl.secretbox.open(
-          decodeBase64(payload.ciphertext),
-          decodeBase64(payload.nonce),
-          sessionKey.current
+          boxBytes,      
+      nonceBytes,
+      sessionKey.current
         )
         if (decryptedBytes) {
           log.info(`Mensagem Criptografada recebida: ${payload.ciphertext}`)
+          log.info(` Integridade OK. Mensagem: "${textMessage}"`);
           setMessages((prev) => [
             ...prev,
             { from: data.from, message: new TextDecoder().decode(decryptedBytes) }
@@ -134,6 +153,17 @@ export function ChatProvider({ children }) {
         const nonce = nacl.randomBytes(nacl.box.nonceLength)
         const encryptedKey = nacl.box(newSessionKey, nonce, recipientPublicKey, ownKeys.secretKey)
 
+        const polyTag = encryptedKey.slice(0, nacl.box.overheadLength); // Primeiros 16 bytes (Poly1305)
+const realCiphertext = encryptedKey.slice(nacl.box.overheadLength); // O resto (Dados)
+
+log.info("====== [ANALISE DE ENVIO DA CHAVE] ======");
+log.info(`1. Chave Original: ${toHex(newSessionKey)}`);
+log.info(`2. O QUE VAI PELA REDE (Box): ${toHex(encryptedKey)}`);
+log.info("--- DECOMPOSICAO ---");
+log.info(`   A. Poly1305 (Lacre): [ ${toHex(polyTag)} ]`);
+log.info(`   B. Ciphertext (Dados): [ ${toHex(realCiphertext)} ]`);
+log.info("=========================================");
+
         const payload = {
           type: 'session-key',
           box: encodeBase64(encryptedKey),
@@ -144,9 +174,9 @@ export function ChatProvider({ children }) {
 
         setIsChannelSecure(true)
         log.info(
-          `Criando chave de sessão \n ${encodeBase64(newSessionKey)} \n e nonce: ${encodeBase64(nonce)} \n`
+          `Criando chave de sessao \n ${encodeBase64(newSessionKey)} \n e nonce: ${encodeBase64(nonce)} \n`
         )
-        log.info(`Criptografando chave de sessão : ${encodeBase64(encryptedKey)}`)
+        log.info(`Criptografando chave de sessao : ${encodeBase64(encryptedKey)}`)
         log.info(`Enviando para ${chatWithUser}... \n`)
         log.info('✅ Canal seguro estabelecido! Chave de sessão enviada.')
       }
@@ -165,6 +195,18 @@ export function ChatProvider({ children }) {
 
     const encryptedMessage = nacl.secretbox(messageUint8, nonce, key)
 
+    const polyTag = encryptedMessage.slice(0, nacl.secretbox.overheadLength)
+    const messageCiphertext = encryptedMessage.slice(nacl.secretbox.overheadLength)
+
+    log.info("====== [ENVIANDO MENSAGEM] ======")
+    log.info(`0. Mensagem Original: "${newMessage}"`)
+    log.info(`1. Pacote Completo (Box): ${toHex(encryptedMessage)}`)
+    log.info("--- DECOMPOSIÇÃO ---")
+    log.info(`   A. Poly1305 (Assinatura): [ ${toHex(polyTag)} ]`)
+    log.info(`   B. Conteudo (Cifrado):    [ ${toHex(messageCiphertext)} ]`)
+    log.info("======================================================")
+    // =================================================================
+
     const payload = {
       type: 'encrypted-message',
       ciphertext: encodeBase64(encryptedMessage),
@@ -179,9 +221,17 @@ export function ChatProvider({ children }) {
   const decryptAndSetSessionKey = useCallback(
     (payload, senderPublicKey) => {
       if (!ownKeys) return
-
+      log.info("====== [ANALISE DE RECEBIMENTO DA CHAVE] ======");
       // Adicione um log para ver qual chave pública está sendo usada
       log.info(`Tentando decifrar chave de sessão com a chave pública de ${chatWithUser}`)
+
+      const boxBytes = decodeBase64(payload.box);
+    const polyTag = boxBytes.slice(0, nacl.box.overheadLength);
+    const realCiphertext = boxBytes.slice(nacl.box.overheadLength);
+    
+    log.info(`1. Box Recebido: ${toHex(boxBytes)}`);
+    log.info(`   A. Lacre (Poly1305): [ ${toHex(polyTag)} ]`);
+    log.info(`   B. Dados (Cifrados): [ ${toHex(realCiphertext)} ]`);
 
       const receivedSessionKey = nacl.box.open(
         decodeBase64(payload.box),
