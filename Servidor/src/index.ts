@@ -28,8 +28,13 @@ const io = new SocketIOServer(httpServer, {
 
 app.use(cors());
 
+interface UserKeys {
+  publicKey: string;
+  signKey: string;
+}
+
 const onlineUsers = new Map<string, string>(); // username -> socket.id
-const publicKeys = new Map<string, string>();
+const publicKeys = new Map<string, UserKeys>();
 const pendingGroups = new Map<string, PendingGroup>();
 const activeGroups = new Map<string, ActiveGroup>();
 
@@ -47,16 +52,33 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
-  socket.on("registerPublicKey", (data: { publicKey: string }) => {
+ socket.on("registerPublicKey", (data: { publicKey: string, signKey: string }) => {
+    // Validação básica
     if (!connectedUsername || publicKeys.has(connectedUsername)) return;
-    publicKeys.set(connectedUsername, data.publicKey);
-    console.log(`Chave pública registrada para '${connectedUsername}: ${data.publicKey}'`);
-  });
+    
+    // Salva o objeto completo com as duas chaves
+    publicKeys.set(connectedUsername, { 
+        publicKey: data.publicKey, 
+        signKey: data.signKey 
+    });
 
-  socket.on("getPublicKey", (data: { username: string }) => {
-    const publicKey = publicKeys.get(data.username) || null;
-    socket.emit("publicKeyResponse", { username: data.username, publicKey });
-  });
+    console.log(`Chaves registradas para '${connectedUsername}'`);
+});
+
+ socket.on("getPublicKey", (data: { username: string }) => {
+    const targetKeys = publicKeys.get(data.username);
+
+    if (targetKeys) {
+        socket.emit("publicKeyResponse", {
+            username: data.username,
+            publicKey: targetKeys.publicKey,
+            signKey: targetKeys.signKey // <--- AGORA O BACKEND DEVOLVE!
+        });
+    } else {
+        // Opcional: avisar que não achou
+        socket.emit("publicKeyResponse", { username: data.username, publicKey: null });
+    }
+});
 
   // --- Chat 1-para-1 ---
   socket.on("send-chat-request", (data: { to: string }) => {

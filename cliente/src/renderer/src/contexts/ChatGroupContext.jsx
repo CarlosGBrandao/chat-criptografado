@@ -8,6 +8,11 @@ import { UserListContext } from './UserListContext'
 import { useNavigate } from 'react-router-dom'
 export const ChatGroupContext = createContext()
 
+const toHex = (u8) => {
+  if (!u8) return '';
+  return Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
 export function ChatGroupProvider({ children }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -21,10 +26,12 @@ export function ChatGroupProvider({ children }) {
   const { userKeys, otherUsers } = useContext(UserListContext)
 
   const [members, setMembers] = useState(initialMembers)
+  
   const [ownKeys, setOwnKeys] = useState(userKeys)
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
 
+  const [membersSignKeys, setMembersSignKeys] = useState(new Map())
   const [membersPublicKeys, setMembersPublicKeys] = useState(new Map())
   const [isChannelSecure, setIsChannelSecure] = useState(false)
 
@@ -53,10 +60,18 @@ export function ChatGroupProvider({ children }) {
 
     const handlePublicKeyResponse = (data) => {
       if (data.publicKey) {
+
+        
         log.info(`[TODOS] Chave pública recebida para: ${data.username}`)
         setMembersPublicKeys((prevMap) =>
           new Map(prevMap).set(data.username, decodeBase64(data.publicKey))
         )
+
+        const remoteSignKey = data.signKey || data.signaturePublicKey;
+        if (remoteSignKey) {
+             setMembersSignKeys((prev) => new Map(prev).set(data.username, decodeBase64(remoteSignKey)))
+        }
+
       } else {
         log.warn(`[TODOS] Resposta de chave pública vazia para: ${data.username}`)
       }
@@ -118,11 +133,12 @@ export function ChatGroupProvider({ children }) {
 
     members.forEach((member) => {
       if (member !== currentUser) {
+
+
         const recipientPublicKey = membersPublicKeys.get(member)
         if (recipientPublicKey) {
           const nonce = nacl.randomBytes(nacl.box.nonceLength)
-          const encryptedKey = nacl.box(newKey, nonce, recipientPublicKey, ownKeys.secretKey)
-
+          const encryptedKey = nacl.box(newKey, nonce, recipientPublicKey, ownKeys.box.secretKey)
           // Converte para Uint8Array bruto
           const encrypted = encryptedKey;
 
@@ -196,7 +212,7 @@ export function ChatGroupProvider({ children }) {
           decodeBase64(data.keyPayload.box),
           decodeBase64(data.keyPayload.nonce),
           ownerPublicKey,
-          ownKeys.secretKey
+          ownKeys.box.secretKey 
         )
         if (receivedKey) {
           groupSessionKey.current = receivedKey
@@ -237,7 +253,7 @@ export function ChatGroupProvider({ children }) {
         log.info(`[MSG] Recebendo mensagem cifrada de '${data.from}' no grupo '${groupName}'.`)
 
         const encrypted = decodeBase64(data.message.ciphertext);
-    const nonce = decodeBase64(data.message.nonce);
+        const nonce = decodeBase64(data.message.nonce);
 
     // === SPLIT DIDÁTICO ===
     const mac = encrypted.slice(encrypted.length - 16);
@@ -257,14 +273,44 @@ export function ChatGroupProvider({ children }) {
           decodeBase64(data.message.nonce),
           key
         )
+
+
         if (decryptedBytes) {
+
+          const signature = decryptedBytes.slice(0, nacl.sign.signatureLength);
+           const messageContent = decryptedBytes.slice(nacl.sign.signatureLength);
+
+           log.info(`[MSG GRUPO] Camada 2 (Auth): Assinatura=${toHex(signature).substring(0,20)}...`);
+
+           // 4. Verifica Assinatura (Ed25519)
+           const senderSignKey = membersSignKeys.get(data.from);
+
+
           log.info(`[MSG] Mensagem de '${data.from}' decifrada com sucesso.`)
-          setMessages((prev) => [
-            ...prev,
-            { from: data.from, message: new TextDecoder().decode(decryptedBytes) }
-          ])
+
+          if (senderSignKey) {
+               const verifiedMessage = nacl.sign.open(decryptedBytes, senderSignKey);
+
+               if (verifiedMessage) {
+                   log.info(`✅ Assinatura VERIFICADA de ${data.from}`);
+                   setMessages((prev) => [
+                        ...prev,
+                        { from: data.from, message: new TextDecoder().decode(verifiedMessage) }
+                   ])
+               } else {
+                   log.error(`❌ FRAUDE: Assinatura invalida de ${data.from}`);
+
+
+          }
+           } else {
+               // Fallback: Sem chave de assinatura (assume legítimo mas avisa)
+               log.warn(`⚠️ Sem chave de assinatura para ${data.from}. Ignorando verificacao.`);
+               const textMsg = new TextDecoder().decode(messageContent);
+               setMessages((prev) => [...prev, { from: data.from, message: textMsg }])
+           }
         } else {
-          log.error(`[MSG] FALHA ao decifrar mensagem de '${data.from}' no grupo '${groupName}'.`)
+          log.error(`[MSG] Erro de integridade (Poly1305) na mensagem de '${data.from}'.`)
+
         }
       }
     }
@@ -333,7 +379,7 @@ export function ChatGroupProvider({ children }) {
         decodeBase64(pendingKeyPayload.box),
         decodeBase64(pendingKeyPayload.nonce),
         ownerPublicKey,
-        ownKeys.secretKey
+        ownKeys.box.secretKey 
       )
 
       if (receivedKey) {
@@ -361,13 +407,22 @@ export function ChatGroupProvider({ children }) {
       return
     }
 
+    if (!ownKeys.sign) { log.error("Sem chave de assinatura!"); return; }
+
     log.info(`[MSG] Criptografando e enviando mensagem para o grupo '${groupName}'`)
 
     const nonce = nacl.randomBytes(nacl.secretbox.nonceLength)
     const key = groupSessionKey.current
     const messageUint8 = new TextEncoder().encode(newMessage)
 
-    const encryptedMessage = nacl.secretbox(messageUint8, nonce, key)
+    const signedMessage = nacl.sign(messageUint8, ownKeys.sign.secretKey)
+
+    const encryptedMessage = nacl.secretbox(signedMessage, nonce, key)
+
+    
+
+    const signaturePreview = signedMessage.slice(0, 64);
+    log.info(`[ENVIO GRUPO] Assinado (${toHex(signaturePreview).substring(0,20)}...) e Criptografado.`);
 
     // MAC = últimos 16 bytes
 const mac = encryptedMessage.slice(encryptedMessage.length - 16);
