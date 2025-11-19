@@ -147,7 +147,7 @@ export function ChatGroupProvider({ children }) {
 
           const cipher = encrypted.slice(0, encrypted.length - 16);
 
-          log.info(`[DIDATICO] Criptografia da chave de sessao:
+          log.info(`[INTEGRABILIDADE] Criptografia da chave de sessao:
   - Nonce (24b): ${encodeBase64(nonce)}
   - Ciphertext (sem MAC): ${encodeBase64(cipher)}
   - Poly1305 MAC (16b): ${encodeBase64(mac)}
@@ -220,7 +220,7 @@ export function ChatGroupProvider({ children }) {
           setPendingKeyPayload(null)
 
            log.info(
-      `[DIDATICO] Chave de sessão criptografada recebida de '${owner}':\n` +
+      `[INTEGRABILIDADE] Chave de sessão criptografada recebida de '${owner}':\n` +
       `  - Nonce (24b): ${data.keyPayload.nonce}\n` +
       `  - Ciphertext (sem MAC): ${encodeBase64(cipher)}\n` +
       `  - Poly1305 MAC (16b): ${encodeBase64(mac)}\n` +
@@ -260,7 +260,7 @@ export function ChatGroupProvider({ children }) {
     const cipher = encrypted.slice(0, encrypted.length - 16);
 
      log.info(
-      `[DIDATICO] Pacote criptografico recebido:\n` +
+      `[INTEGRABILIDADE] Pacote criptografico recebido:\n` +
       `  - Nonce (24b): ${data.message.nonce}\n` +
       `  - Ciphertext (sem MAC): ${encodeBase64(cipher)}\n` +
       `  - Poly1305 MAC (16b): ${encodeBase64(mac)}\n` +
@@ -430,7 +430,7 @@ const mac = encryptedMessage.slice(encryptedMessage.length - 16);
 // Ciphertext = restante
 const cipher = encryptedMessage.slice(0, encryptedMessage.length - 16);
 
-log.info(`[DIDATICO] Criptografia da MENSAGEM enviada:
+log.info(`[INTEGRABILIDADE] Criptografia da MENSAGEM enviada:
   - Nonce (24b): ${encodeBase64(nonce)}
   - Ciphertext (sem MAC): ${encodeBase64(cipher)}
   - Poly1305 MAC (16b): ${encodeBase64(mac)}
