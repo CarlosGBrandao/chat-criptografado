@@ -3,6 +3,14 @@ import http from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
 import cors from "cors";
 import { v4 as uuidv4 } from "uuid";
+import connectDB from './db';
+import dotenv from 'dotenv';
+import { register, login, getSalt } from './controllers/AuthController';
+
+dotenv.config();
+
+connectDB();
+
 
 type PendingGroup = {
   groupId: string;
@@ -20,13 +28,23 @@ type ActiveGroup = {
 };
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use(cors());
+
+
+app.post('/api/register', register);
+app.post('/api/login', login);
+
+app.get('/api/salt/:username', getSalt);
+
+
 const httpServer = http.createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
-app.use(cors());
 
 interface UserKeys {
   publicKey: string;
@@ -37,6 +55,8 @@ const onlineUsers = new Map<string, string>(); // username -> socket.id
 const publicKeys = new Map<string, UserKeys>();
 const pendingGroups = new Map<string, PendingGroup>();
 const activeGroups = new Map<string, ActiveGroup>();
+
+
 
 io.on("connection", (socket: Socket) => {
   console.log(`✅ Cliente conectado: ${socket.id}`);

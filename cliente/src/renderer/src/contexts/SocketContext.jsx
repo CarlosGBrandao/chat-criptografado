@@ -8,7 +8,7 @@ export function SocketProvider({ children }) {
   const socketRef = useRef(null);
 
   if (!socketRef.current) {
-    socketRef.current = io("http://localhost:3000", {
+    socketRef.current = io("http://localhost:3001", {
       autoConnect: false
     });
   }

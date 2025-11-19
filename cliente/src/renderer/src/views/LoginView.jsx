@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { socket } from '../socket';
+import { Link } from 'react-router-dom';
 
 
 // Este componente recebe uma função `onLogin` como propriedade (props)
@@ -48,6 +49,10 @@ export function LoginView({ onLogin }) {
           >
             Entrar
           </button>
+          <div style={{ marginTop: 10 }}>
+  <p>Não tem conta?</p>
+  <Link to="/register">Criar uma conta segura (E2EE)</Link>
+</div>
         </div>
       </div>
     </div>

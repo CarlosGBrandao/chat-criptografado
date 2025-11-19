@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const UserListContext = createContext()
 
-export function UserListProvider({ children, currentUser }) {
+export function UserListProvider({ children, currentUser, restoredKeys }) {
   const [onlineUsers, setOnlineUsers] = useState([])
   const [incomingRequests, setIncomingRequests] = useState(new Set())
   const [pendingRequests, setPendingRequests] = useState(new Set())
@@ -23,13 +23,20 @@ export function UserListProvider({ children, currentUser }) {
     if (!currentUser || !socket) return
 
     // 1. AQUI É A CORREÇÃO CRÍTICA DA ESTRUTURA
-    if (!userKeys.current) {
-      userKeys.current = {
-        box: nacl.box.keyPair(),  // Chave para Criptografia (Salsa20/Curve25519)
-        sign: nacl.sign.keyPair() // Chave para Assinatura (Ed25519)
+   if (!userKeys.current) {
+      // AQUI MUDOU: Verifica se recebemos chaves do login antes de gerar novas
+      if (restoredKeys) {
+        userKeys.current = restoredKeys;
+        log.info(`🔓 Chaves restauradas do cofre para ${currentUser}`);
+      } else {
+        // Fallback: Só gera novas se não tiver chaves restauradas (ex: modo dev sem login)
+        userKeys.current = {
+            box: nacl.box.keyPair(),
+            sign: nacl.sign.keyPair()
+        }
+        log.warn(`⚠️ Chaves EFEMERAS geradas para ${currentUser} (Sem login persistente)`);
       }
       
-      log.info(`🔐 Par de chaves gerado para ${currentUser}`)
       log.info(`→ Box Public Key: ${encodeBase64(userKeys.current.box.publicKey)}`)
       log.info(`→ Sign Public Key: ${encodeBase64(userKeys.current.sign.publicKey)}`)
     }
@@ -53,7 +60,7 @@ export function UserListProvider({ children, currentUser }) {
     return () => {
       socket.off('connect', registerUser)
     }
-  }, [currentUser, socket])
+  }, [currentUser, socket, restoredKeys])
 
   // Atualizar lista de usuário e receber convites
   useEffect(() => {
