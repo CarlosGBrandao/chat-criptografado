@@ -9,6 +9,17 @@ import { UserListContext } from './UserListContext' // <<< 1. IMPORTAR O CONTEXT
 export const ChatContext = createContext()
 
 export function ChatProvider({ children }) {
+
+  const splitCryptoPayload = (encryptedUint8) => {
+  const mac = encryptedUint8.slice(encryptedUint8.length - 16);
+  const cipher = encryptedUint8.slice(0, encryptedUint8.length - 16);
+  return {
+    cipher,
+    mac,
+  };
+}
+
+
   const navigate  = useNavigate();
   const [searchParams] = useSearchParams()
   const currentUser = searchParams.get('currentUser')
@@ -66,6 +77,21 @@ export function ChatProvider({ children }) {
       const { type, ...payload } = data.message
 
       if (type === 'session-key') {
+
+        const encrypted = decodeBase64(payload.box);
+    const nonce = decodeBase64(payload.nonce);
+
+    const { cipher, mac } = splitCryptoPayload(encrypted);
+
+    log.info(
+      `[DIDATICO] CHAVE DE SESSAO RECEBIDA:\n` +
+      `  - Nonce (24b): ${payload.nonce}\n` +
+      `  - Ciphertext (sem MAC): ${encodeBase64(cipher)}\n` +
+      `  - Poly1305 (16b): ${encodeBase64(mac)}\n` +
+      `  - Payload completo ciphertext+mac: ${payload.box}\n`
+    );
+
+
         if (recipientPublicKey) {
           decryptAndSetSessionKey(payload, recipientPublicKey)
         } else {
@@ -79,6 +105,21 @@ export function ChatProvider({ children }) {
         payload.nonce &&
         sessionKey.current
       ) {
+
+        const encrypted = decodeBase64(payload.ciphertext);
+    const nonce = decodeBase64(payload.nonce);
+
+    const { cipher, mac } = splitCryptoPayload(encrypted);
+
+    log.info(
+      `[DIDATICO]  MENSAGEM CIFRADA RECEBIDA:\n` +
+      `  - Nonce (24b): ${payload.nonce}\n` +
+      `  - Cipher (sem MAC): ${encodeBase64(cipher)}\n` +
+      `  - Poly1305 MAC (16b): ${encodeBase64(mac)}\n` +
+      `  - Payload completo ciphertext+mac: ${payload.ciphertext}\n`
+    );
+
+
         const decryptedBytes = nacl.secretbox.open(
           decodeBase64(payload.ciphertext),
           decodeBase64(payload.nonce),
@@ -122,11 +163,16 @@ export function ChatProvider({ children }) {
 
     if (recipientPublicKey && !isChannelSecure) {
       if (initiator === 'true') {
-        log.info('Sou o iniciador. Gerando e enviando chave de sessão.')
+        log.info('Sou o iniciador. Gerando e enviando chave de sessao.')
         const newSessionKey = nacl.randomBytes(nacl.secretbox.keyLength)
         sessionKey.current = newSessionKey
         const nonce = nacl.randomBytes(nacl.box.nonceLength)
         const encryptedKey = nacl.box(newSessionKey, nonce, recipientPublicKey, ownKeys.secretKey)
+
+   
+        const corruptedEncryptedKey = new Uint8Array(encryptedKey);
+        corruptedEncryptedKey[0] ^= 0xFF; // muda o primeiro byte 
+
 
         const payload = {
           type: 'session-key',
@@ -138,11 +184,11 @@ export function ChatProvider({ children }) {
 
         setIsChannelSecure(true)
         log.info(
-          `Criando chave de sessão \n ${encodeBase64(newSessionKey)} \n e nonce: ${encodeBase64(nonce)} \n`
+          `Criando chave de sessao \n ${encodeBase64(newSessionKey)} \n e nonce: ${encodeBase64(nonce)} \n`
         )
-        log.info(`Criptografando chave de sessão : ${encodeBase64(encryptedKey)}`)
+        log.info(`Criptografando chave de sessao : ${encodeBase64(encryptedKey)}`)
         log.info(`Enviando para ${chatWithUser}... \n`)
-        log.info('✅ Canal seguro estabelecido! Chave de sessão enviada.')
+        log.info('✅ Canal seguro estabelecido! Chave de sessao enviada.')
       }
     }
   }, [recipientPublicKey, isChannelSecure, socket])
@@ -159,6 +205,16 @@ export function ChatProvider({ children }) {
 
     const encryptedMessage = nacl.secretbox(messageUint8, nonce, key)
 
+    const { cipher, mac } = splitCryptoPayload(encryptedMessage);
+
+    log.info(
+  `[DIDATICO] MENSAGEM ENVIADA (CIFRADA):\n` +
+  `  - Nonce: ${encodeBase64(nonce)}\n` +
+  `  - Cipher (sem MAC): ${encodeBase64(cipher)}\n` +
+  `  - Poly1305 MAC: ${encodeBase64(mac)}\n` +
+  `  - Payload completo (ciphertext+mac): ${encodeBase64(encryptedMessage)}\n`
+);
+
     const payload = {
       type: 'encrypted-message',
       ciphertext: encodeBase64(encryptedMessage),
@@ -174,6 +230,22 @@ export function ChatProvider({ children }) {
     (payload, senderPublicKey) => {
       if (!ownKeys) return
 
+      const encrypted = decodeBase64(payload.box);
+    const nonce = decodeBase64(payload.nonce);
+
+    const { cipher, mac } = splitCryptoPayload(encrypted);
+
+     log.info(
+      `[DIDATICO] Tentando decifrar chave de sessão:\n` +
+      `  - Nonce: ${payload.nonce}\n` +
+      `  - Cipher (sem MAC): ${encodeBase64(cipher)}\n` +
+      `  - Poly1305 MAC: ${encodeBase64(mac)}\n` +
+      `  - Payload completo: ${payload.box}\n`
+    );
+
+
+
+
       log.info(`Tentando decifrar chave de sessão com a chave pública de ${chatWithUser}`)
 
       const receivedSessionKey = nacl.box.open(
@@ -187,12 +259,12 @@ export function ChatProvider({ children }) {
         sessionKey.current = receivedSessionKey
         setIsChannelSecure(true)
         log.info(
-          `Chave de sessão criptografada: \n ${payload.box} \n e nonce ${payload.nonce} recebidos`
+          `Chave de sessao criptografada: \n ${payload.box} \n e nonce ${payload.nonce} recebidos`
         )
-        log.info(`Chave de sessão descriptografada: ${encodeBase64(receivedSessionKey)} \n`)
-        log.info('✅ Canal seguro estabelecido! Chave de sessão recebida e decifrada.')
+        log.info(`Chave de sessao descriptografada: ${encodeBase64(receivedSessionKey)} \n`)
+        log.info('✅ Canal seguro estabelecido! Chave de sessao recebida e decifrada.')
       } else {
-        log.error('!!!!!!!! FALHA AO DECIFRAR A CHAVE DE SESSÃO !!!!!!!')
+        log.error('!!!!!!!! FALHA AO DECIFRAR A CHAVE DE SESSAO !!!!!!!')
       }
     },
     [ownKeys, chatWithUser]

@@ -123,6 +123,22 @@ export function ChatGroupProvider({ children }) {
           const nonce = nacl.randomBytes(nacl.box.nonceLength)
           const encryptedKey = nacl.box(newKey, nonce, recipientPublicKey, ownKeys.secretKey)
 
+          // Converte para Uint8Array bruto
+          const encrypted = encryptedKey;
+
+          // MAC = últimos 16 bytes
+          const mac = encrypted.slice(encrypted.length - 16);
+
+          const cipher = encrypted.slice(0, encrypted.length - 16);
+
+          log.info(`[DIDATICO] Criptografia da chave de sessao:
+  - Nonce (24b): ${encodeBase64(nonce)}
+  - Ciphertext (sem MAC): ${encodeBase64(cipher)}
+  - Poly1305 MAC (16b): ${encodeBase64(mac)}
+  - Ciphertext+MAC final enviado: ${encodeBase64(encrypted)}
+`);
+
+
           log.info(
             `[DONO] Criptografando chave para '${member}':\n` +
               `  Box: ${encodeBase64(encryptedKey)}\n` +
@@ -141,7 +157,7 @@ export function ChatGroupProvider({ children }) {
           })
         } else {
           log.warn(
-            `[DONO] Ia enviar chave para '${member}', mas não encontrei sua chave pública no mapa.`
+            `[DONO] Ia enviar chave para '${member}', mas não encontrei sua chave publica no mapa.`
           )
         }
       }
@@ -161,6 +177,15 @@ export function ChatGroupProvider({ children }) {
 
       const ownerPublicKey = membersPublicKeys.get(owner)
       if (ownerPublicKey) {
+
+        const encrypted = decodeBase64(data.keyPayload.box);
+    const nonce = decodeBase64(data.keyPayload.nonce);
+
+    // === SPLIT DIDÁTICO ===
+    const mac = encrypted.slice(encrypted.length - 16);
+    const cipher = encrypted.slice(0, encrypted.length - 16);
+
+
         log.info(
           `[MEMBRO] Chave de sessao criptografada de '${owner}' recebida:\n` +
             `  Box: ${data.keyPayload.box}\n` +
@@ -177,6 +202,15 @@ export function ChatGroupProvider({ children }) {
           groupSessionKey.current = receivedKey
           setIsChannelSecure(true)
           setPendingKeyPayload(null)
+
+           log.info(
+      `[DIDATICO] Chave de sessão criptografada recebida de '${owner}':\n` +
+      `  - Nonce (24b): ${data.keyPayload.nonce}\n` +
+      `  - Ciphertext (sem MAC): ${encodeBase64(cipher)}\n` +
+      `  - Poly1305 MAC (16b): ${encodeBase64(mac)}\n` +
+      `  - Payload completo ciphertext+mac: ${data.keyPayload.box}\n`
+    );
+
           log.info(
             `[MEMBRO] Nova chave de sessão decifrada com sucesso para o grupo ${groupName}.
             Session Key = ${encodeBase64(receivedKey)}
@@ -201,6 +235,23 @@ export function ChatGroupProvider({ children }) {
       const key = groupSessionKey.current
       if (key && data.message.ciphertext) {
         log.info(`[MSG] Recebendo mensagem cifrada de '${data.from}' no grupo '${groupName}'.`)
+
+        const encrypted = decodeBase64(data.message.ciphertext);
+    const nonce = decodeBase64(data.message.nonce);
+
+    // === SPLIT DIDÁTICO ===
+    const mac = encrypted.slice(encrypted.length - 16);
+    const cipher = encrypted.slice(0, encrypted.length - 16);
+
+     log.info(
+      `[DIDATICO] Pacote criptografico recebido:\n` +
+      `  - Nonce (24b): ${data.message.nonce}\n` +
+      `  - Ciphertext (sem MAC): ${encodeBase64(cipher)}\n` +
+      `  - Poly1305 MAC (16b): ${encodeBase64(mac)}\n` +
+      `  - Payload completo ciphertext+mac: ${data.message.ciphertext}\n`
+    );
+
+
         const decryptedBytes = nacl.secretbox.open(
           decodeBase64(data.message.ciphertext),
           decodeBase64(data.message.nonce),
@@ -223,7 +274,7 @@ export function ChatGroupProvider({ children }) {
 
       const newMembersList = data.members
       if (!newMembersList.includes(currentUser)) {
-        log.warn(`[REMOVIDO] Você foi removido do grupo '${groupName}' por um administrador.`)
+        log.warn(`[REMOVIDO] Voce foi removido do grupo '${groupName}' por um administrador.`)
         setIsGroupTerminated(true);
         return
       }
@@ -317,6 +368,19 @@ export function ChatGroupProvider({ children }) {
     const messageUint8 = new TextEncoder().encode(newMessage)
 
     const encryptedMessage = nacl.secretbox(messageUint8, nonce, key)
+
+    // MAC = últimos 16 bytes
+const mac = encryptedMessage.slice(encryptedMessage.length - 16);
+
+// Ciphertext = restante
+const cipher = encryptedMessage.slice(0, encryptedMessage.length - 16);
+
+log.info(`[DIDATICO] Criptografia da MENSAGEM enviada:
+  - Nonce (24b): ${encodeBase64(nonce)}
+  - Ciphertext (sem MAC): ${encodeBase64(cipher)}
+  - Poly1305 MAC (16b): ${encodeBase64(mac)}
+  - Payload final ciphertext+MAC: ${encodeBase64(encryptedMessage)}
+`);
 
     const payload = {
       ciphertext: encodeBase64(encryptedMessage),
