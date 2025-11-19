@@ -1,8 +1,13 @@
 import { io } from 'socket.io-client';
 
-// O endereço do seu servidor
 const URL = 'http://localhost:3000';
 
-// Criamos a instância do socket aqui, com autoConnect: false, e a exportamos.
-// Qualquer arquivo que importar 'socket' deste arquivo, receberá a MESMA instância.
-export const socket = io(URL, { autoConnect: false });
+export const socket = io(URL, {
+  autoConnect: false,       // Você conecta manualmente
+  reconnection: true,       // Ativa reconexão automática
+  reconnectionAttempts: 10, // Quantas tentativas antes de desistir
+  reconnectionDelay: 1000,  // Tempo inicial entre tentativas
+  reconnectionDelayMax: 5000, // Tempo máximo entre tentativas
+  randomizationFactor: 0.5,   // Variação para evitar avalanche de tentativas
+  timeout: 10000, // Tempo para considerar tentativa como falha
+});
