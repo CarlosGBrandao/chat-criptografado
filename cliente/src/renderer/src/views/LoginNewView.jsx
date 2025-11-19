@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { decryptUserKeys, generateLoginVerifier } from './authCrypto';
+// Importamos a função de regeneração
+import { generateLoginVerifier, restoreKeysFromPassword } from './authCrypto'; 
 import { Link } from 'react-router-dom';
 
 export default function LoginNewView({ onLoginSuccess }) {
@@ -12,7 +13,7 @@ export default function LoginNewView({ onLoginSuccess }) {
     setLoading(true);
 
     try {
-      // 1. Busca o SALT do usuário primeiro
+      // 1. Busca o SALT do usuário
       const saltRes = await fetch(`http://localhost:3001/api/salt/${username}`);
       if (!saltRes.ok) {
         throw new Error('Usuário não encontrado.');
@@ -22,7 +23,7 @@ export default function LoginNewView({ onLoginSuccess }) {
       // 2. Gera o verificador localmente
       const passwordVerifier = generateLoginVerifier(password, salt);
 
-      // 3. Tenta logar no servidor
+      // 3. Tenta logar no servidor (Servidor verifica APENAS o PasswordVerifier)
       const loginRes = await fetch('http://localhost:3001/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,24 +36,25 @@ export default function LoginNewView({ onLoginSuccess }) {
         throw new Error(data.message || 'Falha no login');
       }
 
-      console.log("📦 Cofre recebido! Tentando destrancar com sua senha...");
+      // O servidor retorna { username, salt, publicKeyBox, publicKeySign }
 
-      // 4. A Mágica: Descriptografa as chaves privadas na memória
-      const unlockedKeys = decryptUserKeys(
+      // 4. A Mágica Determinística: RE-GERA as chaves privadas na memória
+      // Usamos a senha + o salt do servidor para produzir a EXATA Master Key
+      const unlockedKeys = restoreKeysFromPassword(
         password, 
-        data.salt, 
-        data.encryptedPrivateKeyBox, 
-        data.encryptedPrivateKeySign
+        data.salt // O salt que veio do servidor
+        // NÃO PRECISAMOS MAIS DOS CAMPOS data.encryptedPrivateKey...
       );
 
       if (unlockedKeys) {
-        console.log("🔓 Cofre aberto com sucesso! Chaves restauradas.");
+        console.log("🔓 Chaves Determinísticas Restauradas e Prontas.");
         
         // CHAMA O CALLBACK PARA O APP.JS GUARDAR AS CHAVES
         onLoginSuccess(data.username, unlockedKeys);
         
       } else {
-        alert("Erro crítico: A senha validou no servidor, mas não conseguiu abrir o cofre localmente.");
+        // Este erro só ocorreria se o PBKDF2 ou TweetNACL falhasse.
+        alert("Erro crítico: Falha na regeneração local das chaves.");
       }
 
     } catch (error) {
@@ -63,6 +65,7 @@ export default function LoginNewView({ onLoginSuccess }) {
   };
 
   return (
+    // ... (O JSX do retorno fica igual)
     <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
       <div className="bg-gray-800 p-8 rounded-lg shadow-lg w-96">
         <h2 className="text-2xl font-bold mb-6 text-center">Login E2EE</h2>

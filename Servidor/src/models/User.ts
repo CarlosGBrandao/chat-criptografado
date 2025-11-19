@@ -26,10 +26,7 @@ const UserSchema: Schema = new Schema({
   publicKeyBox: { type: String, required: true },
   publicKeySign: { type: String, required: true },
 
-  // Chaves Privadas (Cifradas com AES pelo Cliente)
-  encryptedPrivateKeyBox: { type: String, required: true },
-  encryptedPrivateKeySign: { type: String, required: true },
-
+  
   // Segurança da Senha
   salt: { type: String, required: true },
   passwordVerifier: { type: String, required: true }

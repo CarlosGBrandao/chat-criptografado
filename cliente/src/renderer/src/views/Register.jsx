@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
-import { generateNewUserKeys, prepareRegistrationPayload } from './authCrypto.js';
+import nacl from 'tweetnacl';
+import { encodeBase64, decodeBase64 } from 'tweetnacl-util';
+// Importe as funções corretas para o Modelo Determinístico
+import { generateDeterministicKeys, generateLoginVerifier } from './authCrypto.js'; 
 import { useNavigate } from 'react-router-dom';
+
 
 export default function Register() {
   const [username, setUsername] = useState('');
@@ -13,17 +17,31 @@ export default function Register() {
     setLoading(true);
 
     try {
-      console.log("🔐 Gerando par de chaves localmente...");
-      // 1. Gera as chaves na memória RAM do navegador
-      const keys = generateNewUserKeys();
-
-      console.log("🔒 Criptografando chaves com sua senha...");
-      // 2. Prepara o pacote criptografado
-      const payload = prepareRegistrationPayload(username, password, keys);
-
-      console.log("📤 Enviando para o servidor...", payload);
+      // 1. Gera o Salt
+     const salt = encodeBase64(nacl.randomBytes(16));
       
-      // 3. Envia para a API que criamos
+      // 2. Gera Chaves Determinísticas (Privada + Pública)
+      const keys = generateDeterministicKeys(password, salt); // Gera as chaves mestras
+      
+      // 3. Gera o Verificador de Senha
+      const passwordVerifier = generateLoginVerifier(password, salt);
+
+      console.log("🔐 Chaves geradas e verificador criado localmente.");
+      
+      // 4. Prepara o payload para o servidor
+      // O servidor recebe APENAS as chaves públicas e o salt.
+      const payload = {
+        username,
+        salt,
+        passwordVerifier,
+        publicKeyBox: encodeBase64(keys.box.publicKey),
+        publicKeySign: encodeBase64(keys.sign.publicKey),
+        // Chaves Privadas (secretKey) NÃO SÃO ENVIADAS AO SERVIDOR
+      };
+
+      console.log("📤 Enviando para o servidor (Sem chaves privadas)...", payload);
+      
+      // 5. Envia para a API
       const response = await fetch('http://localhost:3001/api/register', {
         method: 'POST',
         headers: {
@@ -36,15 +54,14 @@ export default function Register() {
 
       if (response.ok) {
         alert('✅ Usuário registrado com sucesso! Agora faça login.');
-        // Aqui você redirecionaria para o Login (que faremos a seguir)
-        // navigate('/login');
+        navigate('/'); // Redireciona para o fluxo principal (Login)
       } else {
         alert(`❌ Erro: ${data.message}`);
       }
 
     } catch (error) {
       console.error(error);
-      alert('Erro ao conectar com o servidor.');
+      alert('Erro ao conectar com o servidor ou problema na criptografia.');
     } finally {
       setLoading(false);
     }
@@ -69,7 +86,7 @@ export default function Register() {
           required
         />
         <button type="submit" disabled={loading}>
-          {loading ? 'Criptografando e Registrando...' : 'Registrar'}
+          {loading ? 'Gerando Chaves Determinísticas...' : 'Registrar'}
         </button>
       </form>
     </div>

@@ -8,8 +8,6 @@ export const register = async (req: Request, res: Response) => {
       username, 
       publicKeyBox, 
       publicKeySign, 
-      encryptedPrivateKeyBox, 
-      encryptedPrivateKeySign,
       salt,
       passwordVerifier 
     } = req.body;
@@ -25,8 +23,6 @@ export const register = async (req: Request, res: Response) => {
       username,
       publicKeyBox,
       publicKeySign,
-      encryptedPrivateKeyBox,
-      encryptedPrivateKeySign,
       salt,
       passwordVerifier
     });
@@ -71,8 +67,6 @@ export const login = async (req: Request, res: Response) => {
     res.json({
       username: user.username,
       salt: user.salt,
-      encryptedPrivateKeyBox: user.encryptedPrivateKeyBox,
-      encryptedPrivateKeySign: user.encryptedPrivateKeySign,
       publicKeyBox: user.publicKeyBox,
       publicKeySign: user.publicKeySign
     });
