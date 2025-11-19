@@ -58,7 +58,7 @@ export function ChatProvider({ children }) {
     setPendingSessionKey(null)
     sessionKey.current = null
     setNewMessage('')
-  }, [chatWithUser])
+  }, [])
 
   //Conexão na Room
   useEffect(() => {
@@ -72,6 +72,11 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     if (!ownKeys || !socket) return
     const handlePublicKeyResponse = (data) => {
+      if(recipientPublicKey){
+        return
+      }
+      log.info("Recipiente", recipientPublicKey)
+      log.info("Recipeiten SIng", recipientSignKey)
       log.info("[DEBUG HANDSHAKE] Dados recebidos do servidor:", data);
 
       const isSameUser = data.username === chatWithUser || 
@@ -122,7 +127,7 @@ export function ChatProvider({ children }) {
         const { cipher, mac } = splitCryptoPayload(encrypted);
 
         log.info(
-          `[DIDATICO] CHAVE DE SESSAO RECEBIDA:\n` +
+          `[INTEGRABILIDADE] CHAVE DE SESSAO RECEBIDA:\n` +
           `  - Nonce (24b): ${payload.nonce}\n` +
           `  - Ciphertext (sem MAC): ${encodeBase64(cipher)}\n` +
           `  - Poly1305 (16b): ${encodeBase64(mac)}\n` +
@@ -149,7 +154,7 @@ export function ChatProvider({ children }) {
         const { cipher, mac } = splitCryptoPayload(encrypted);
 
         log.info(
-          `[DIDATICO]  MENSAGEM CIFRADA RECEBIDA (Camada Externa):\n` +
+          `[INTEGRABILIDADE]  MENSAGEM CIFRADA RECEBIDA (Camada Externa):\n` +
           `  - Nonce (24b): ${payload.nonce}\n` +
           `  - Cipher (sem MAC): ${encodeBase64(cipher)}\n` +
           `  - Poly1305 MAC (16b): ${encodeBase64(mac)}\n` +
@@ -172,7 +177,7 @@ export function ChatProvider({ children }) {
           const messageContent = decryptedSignedMessage.slice(nacl.sign.signatureLength); // O resto
 
           log.info(
-            `[DIDATICO] CONTEÚDO DECIFRADO (Camada Interna):\n` +
+            `[INTEGRABILIDADE] CONTEÚDO DECIFRADO (Camada Interna):\n` +
             `  - Assinatura Digital (64b): ${encodeBase64(signature)}\n` +
             `  - Mensagem Textual (Bytes): ${encodeBase64(messageContent)}\n` 
           );
@@ -215,7 +220,7 @@ export function ChatProvider({ children }) {
       setPartnerLeft(true);   
     };
 
-    socket.on('publicKeyResponse', handlePublicKeyResponse)
+    socket.once('publicKeyResponse', handlePublicKeyResponse)
     socket.on('receiveMessage', receiveMessageHandler)
     socket.on('partner-disconnected', handlePartnerDisconnect)
     socket.on("disconnecting", handlePartnerDisconnect)
@@ -301,7 +306,7 @@ export function ChatProvider({ children }) {
     const { cipher, mac } = splitCryptoPayload(encryptedMessage);
 
     log.info(
-  `[DIDATICO] MENSAGEM ENVIADA (CIFRADA):\n` +
+  `[INTEGRABILIDADE] MENSAGEM ENVIADA (CIFRADA):\n` +
   `  - Nonce: ${encodeBase64(nonce)}\n` +
   `  - Cipher (sem MAC): ${encodeBase64(cipher)}\n` +
   `  - Poly1305 MAC: ${encodeBase64(mac)}\n` +
@@ -329,7 +334,7 @@ export function ChatProvider({ children }) {
     const { cipher, mac } = splitCryptoPayload(encrypted);
 
      log.info(
-      `[DIDATICO] Tentando decifrar chave de sessão:\n` +
+      `[INTEGRABILIDADE] Tentando decifrar chave de sessão:\n` +
       `  - Nonce: ${payload.nonce}\n` +
       `  - Cipher (sem MAC): ${encodeBase64(cipher)}\n` +
       `  - Poly1305 MAC: ${encodeBase64(mac)}\n` +
