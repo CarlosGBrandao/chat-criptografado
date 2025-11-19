@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 // Importamos a função de regeneração
 import { generateLoginVerifier, restoreKeysFromPassword } from './authCrypto'; 
 import { Link } from 'react-router-dom';
+import log from 'electron-log/renderer'
 
 export default function LoginNewView({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -19,10 +20,11 @@ export default function LoginNewView({ onLoginSuccess }) {
         throw new Error('Usuário não encontrado.');
       }
       const { salt } = await saltRes.json();
+      console.log("Salt do Usuário encontrado: ",salt )
 
       // 2. Gera o verificador localmente
       const passwordVerifier = generateLoginVerifier(password, salt);
-
+      console.log("Gerando um verificador de login usando a senha: ", password)
       // 3. Tenta logar no servidor (Servidor verifica APENAS o PasswordVerifier)
       const loginRes = await fetch('http://localhost:3001/api/login', {
         method: 'POST',
@@ -47,7 +49,7 @@ export default function LoginNewView({ onLoginSuccess }) {
       );
 
       if (unlockedKeys) {
-        console.log("🔓 Chaves Determinísticas Restauradas e Prontas.");
+        log.info("🔓 Chaves Determinísticas Restauradas e Prontas.", "\n", "UnlockedKeys: ",unlockedKeys);
         
         // CHAMA O CALLBACK PARA O APP.JS GUARDAR AS CHAVES
         onLoginSuccess(data.username, unlockedKeys);

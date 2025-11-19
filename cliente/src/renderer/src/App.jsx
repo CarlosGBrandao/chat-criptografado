@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, useSearchParams } from 'react-router-dom';
+import log from 'electron-log/renderer'
 
 // --- VIEWS EXISTENTES ---
 import { LoginView } from './views/LoginView';
@@ -34,7 +35,7 @@ const MainFlow = ({ currentUser, onLogin }) => {
       .catch(error => {
         // O fetch pode falhar se não tiver rota GET, mas o socket pode estar on.
         // Para simplificar, vamos assumir online se o socket conectar, ou manter sua logica se tiver endpoint.
-        console.log("Check de status HTTP falhou (normal se não criou rota GET), seguindo...");
+        log.info("Check de status HTTP falhou (normal se não criou rota GET), seguindo...");
         setServerStatus({ online: true, message: 'Online' }); 
       });
   }, []);

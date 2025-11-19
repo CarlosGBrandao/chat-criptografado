@@ -4,6 +4,7 @@ import { encodeBase64, decodeBase64 } from 'tweetnacl-util';
 // Importe as funções corretas para o Modelo Determinístico
 import { generateDeterministicKeys, generateLoginVerifier } from './authCrypto.js'; 
 import { useNavigate, Link } from 'react-router-dom';
+import log from 'electron-log/renderer'
 
 
 export default function Register() {
@@ -26,7 +27,7 @@ export default function Register() {
       // 3. Gera o Verificador de Senha
       const passwordVerifier = generateLoginVerifier(password, salt);
 
-      console.log("🔐 Chaves geradas e verificador criado localmente.");
+      log.info("🔐 Chaves geradas e verificador criado localmente.");
       
       // 4. Prepara o payload para o servidor
       // O servidor recebe APENAS as chaves públicas e o salt.
@@ -39,7 +40,7 @@ export default function Register() {
         // Chaves Privadas (secretKey) NÃO SÃO ENVIADAS AO SERVIDOR
       };
 
-      console.log("📤 Enviando para o servidor (Sem chaves privadas)...", payload);
+      log.info("📤 Enviando para o servidor (Sem chaves privadas)...", payload);
       
       // 5. Envia para a API
       const response = await fetch('http://localhost:3001/api/register', {

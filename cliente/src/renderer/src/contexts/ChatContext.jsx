@@ -201,7 +201,6 @@ export function ChatProvider({ children }) {
 
           } else {
               // Fallback caso a chave de assinatura não tenha chegado (para não quebrar o app)
-              log.warn("⚠️ Chave de assinatura não encontrada. Exibindo mensagem sem verificação de autenticidade.");
               // Nesse caso, lemos manualmente ignorando os primeiros 64 bytes
               const textBytes = decryptedSignedMessage.slice(nacl.sign.signatureLength);
               setMessages((prev) => [

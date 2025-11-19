@@ -304,7 +304,6 @@ export function ChatGroupProvider({ children }) {
           }
            } else {
                // Fallback: Sem chave de assinatura (assume legítimo mas avisa)
-               log.warn(`⚠️ Sem chave de assinatura para ${data.from}. Ignorando verificacao.`);
                const textMsg = new TextDecoder().decode(messageContent);
                setMessages((prev) => [...prev, { from: data.from, message: textMsg }])
            }

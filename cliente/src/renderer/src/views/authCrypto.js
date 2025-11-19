@@ -48,10 +48,6 @@ export const generateDeterministicKeys = (password, salt) => {
 const signKeyUint8 = masterKeyToUint8(signKeyCrypto); // 64 bytes
 const signKeyPair = nacl.sign.keyPair.fromSeed(signKeyUint8);
 
-    // Opcional para Debug: Remova o console.log anterior e use este
-    // console.log(`[VERIFICAÇÃO FINAL] Tamanho do buffer enviado ao nacl: ${masterKeyUint8.length}`);
-
-
     return {
         box: boxKeyPair,
         sign: signKeyPair
