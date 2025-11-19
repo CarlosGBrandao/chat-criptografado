@@ -22,16 +22,27 @@ export function UserListProvider({ children, currentUser }) {
   useEffect(() => {
     if (!currentUser || !socket) return
 
+    // 1. AQUI É A CORREÇÃO CRÍTICA DA ESTRUTURA
     if (!userKeys.current) {
-      userKeys.current = nacl.box.keyPair()
+      userKeys.current = {
+        box: nacl.box.keyPair(),  // Chave para Criptografia (Salsa20/Curve25519)
+        sign: nacl.sign.keyPair() // Chave para Assinatura (Ed25519)
+      }
+      
       log.info(`🔐 Par de chaves gerado para ${currentUser}`)
-      log.info(`→ Public Key: ${encodeBase64(userKeys.current.publicKey)}`)
-      log.info(`→ Secret Key: ${encodeBase64(userKeys.current.secretKey)}`)
+      log.info(`→ Box Public Key: ${encodeBase64(userKeys.current.box.publicKey)}`)
+      log.info(`→ Sign Public Key: ${encodeBase64(userKeys.current.sign.publicKey)}`)
     }
 
     const registerUser = () => {
       socket.emit('register', currentUser)
-      socket.emit('registerPublicKey', { publicKey: encodeBase64(userKeys.current.publicKey) })
+      
+      // 2. AQUI ENVIAMOS A CHAVE PÚBLICA CORRETA (.box)
+      // Se o backend esperar também a chave de assinatura, adicione: signKey: ...
+      socket.emit('registerPublicKey', { 
+        publicKey: encodeBase64(userKeys.current.box.publicKey),
+        signKey: encodeBase64(userKeys.current.sign.publicKey) // Enviando ambas por precaução
+      })
     }
 
     if (socket.connected) {
